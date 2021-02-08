@@ -2,8 +2,8 @@
 # 2.) make everythin 16bit integers (just ignore the "-" sign, buggy programming going on here...)
 #
 #    1.) section number.
-#    2.) Azimut IN
-#    3.) Azimut OUT
+#    2.) azimuth IN
+#    3.) azimuth OUT
 #    4.) Length
 #    5.) Depth || temp
 #    6.) Depth || temp.
@@ -17,8 +17,8 @@
 66 ; 65 ; 83; => BAS mnemo type
 
 0  ; 2 ; Section Number
-8 ;  25 ;    0x08 ; 0x19    0x819 = 2073 /  10 = 207.3 == azimut IN
-7  ; -125 ;  0x0007 ; 0xFF83  =     1923 /  10 = 192.3 == azimut OUT          (IGNORING THE SIGNED "-")                                              00000111 ;  mmm signed numbers are multi-byte...
+8 ;  25 ;    0x08 ; 0x19    0x819 = 2073 /  10 = 207.3 == azimuth IN
+7  ; -125 ;  0x0007 ; 0xFF83  =     1923 /  10 = 192.3 == azimuth OUT          (IGNORING THE SIGNED "-")                                              00000111 ;  mmm signed numbers are multi-byte...
 2 ; -50 ;    0x0002 ; 0xFFCE  =      718 / 100 =  7.18 == length              (IGNORING THE SIGNED "-")
 
 35 ;   28 ; depth?  0x23 ; 0x1C = 0x231C = 8988 / 100 == depth
