@@ -15,7 +15,6 @@ class MainApplicationWindow(QMainWindow):
 
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
-
         self.central_widget = QWidget(self)
         self.setWindowTitle(MAIN_WINDOW_TITLE)
         self.setWindowIcon(QIcon(MAIN_WINDOW_ICON))
@@ -49,19 +48,21 @@ class MainApplicationWindow(QMainWindow):
     def get_treenav(self):
         tree = QTreeView(self)
         tree.setHeaderHidden(True)
+        tree.setUniformRowHeights(True)
+        tree.setAlternatingRowColors(True)
         tree.setSelectionBehavior(QAbstractItemView.SelectRows)
         tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
         tree.setContextMenuPolicy(Qt.ActionsContextMenu)
+
 
         context_menu = QMenu(tree)
         actions = TreeActions(tree, context_menu)
         tree.addAction(actions.edit())
 
-        """
-            This should more or less be good, see SurveyCollection for details.
-        """
+        model = SurveyCollection()
+        tree.setModel(model)
 
-        tree.setModel(SurveyCollection())
+        model.dataChanged.connect(tree.dataChanged)
 
         tree.setMinimumWidth(TREE_START_WIDTH)
         tree.setMinimumWidth(TREE_MIN_WIDTH)

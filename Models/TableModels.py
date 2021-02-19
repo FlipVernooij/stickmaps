@@ -50,7 +50,7 @@ class QueryMixin:
         return insert_id
 
     @classmethod
-    def update(cls, table_name, values, where_str, params):
+    def update(cls, table_name: str, values: dict, where_str: str, params: list = []):
         update_cols = ', '.join('{}=?'.format(x) for x in values.keys())
         query = 'UPDATE {} SET {} WHERE {}'.format(table_name, update_cols, where_str)
         obj = QSqlQuery()
@@ -58,7 +58,7 @@ class QueryMixin:
 
         for value in values.values():
             obj.addBindValue(value)
-        for value in params.values():
+        for value in params:
             obj.addBindValue(value)
 
         obj.exec_()

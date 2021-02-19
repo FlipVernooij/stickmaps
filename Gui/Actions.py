@@ -96,7 +96,6 @@ class TreeActions:
     def edit_callback(self, *args, **kwargs):
         index = self.tree_view.selectedIndexes()[0]
         item = index.model().itemFromIndex(index)
-        foo = 1
         try:
             point_id = item.point_id
             return

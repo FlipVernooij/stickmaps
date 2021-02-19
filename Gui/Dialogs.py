@@ -1,4 +1,4 @@
-from PySide6.QtCore import QCoreApplication, QTime, QDateTime
+from PySide6.QtCore import QDateTime
 from PySide6.QtGui import Qt
 from PySide6.QtSql import QSqlTableModel
 from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, QMessageBox, QApplication, QFormLayout, \
@@ -109,7 +109,9 @@ class EditSurveyDialog(QDialog):
         self.survey = survey
 
         layout = QFormLayout()
+        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.name_field = QLineEdit(survey['survey_name'])
+        self.name_field.setClearButtonEnabled(True)
         layout.addRow('&Name', self.name_field)
 
         # should use QTime as argument here? survey['survey_datetime']
@@ -119,16 +121,18 @@ class EditSurveyDialog(QDialog):
         layout.addRow('&Date', self.datetime_field)
 
         self.device_field = QLineEdit(survey['device_name'])
+        self.device_field.setClearButtonEnabled(True)
         layout.addRow('&Device', self.device_field)
 
         self.comment_field = QTextEdit(survey['survey_comment'])
         layout.addRow('&Comment', self.comment_field)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
+        buttons = QDialogButtonBox(QDialogButtonBox.Reset | QDialogButtonBox.Cancel | QDialogButtonBox.Save)
         layout.addRow(buttons)
 
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.cancel)
+        buttons.button(QDialogButtonBox.Reset).clicked.connect(self.reset)
 
         self.setWindowTitle('Edit Survey')
         self.resize(800, 400)
@@ -139,7 +143,22 @@ class EditSurveyDialog(QDialog):
         survey_dict['survey_name'] = self.name_field.text()
         survey_dict['survey_comment'] = self.comment_field.toPlainText()
         survey_dict['device_name'] = self.device_field.text()
+        time = self.datetime_field.dateTime().toPython()
+        survey_dict['survey_datetime'] = time.timestamp()
+
+        tree = self.parentWidget()
+        model = tree.model()
+        model.update_survey(data=survey_dict, index=tree.selectedIndexes()[0])
         self.close()
+
+    def reset(self):
+        survey_dict = self.survey
+        self.name_field.setText(survey_dict['survey_name'])
+        self.comment_field.setText(survey_dict['survey_comment'])
+        self.device_field.setText(survey_dict['device_name'])
+        time = QDateTime()
+        time.setSecsSinceEpoch(round(float(survey_dict['survey_datetime'])))
+        self.datetime_field.setTime(time)
 
     def cancel(self):
         self.close()
