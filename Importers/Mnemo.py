@@ -3,12 +3,12 @@ from datetime import datetime
 from pprint import pprint
 
 import serial
+from PySide6.QtSql import QSqlDatabase
 from serial.tools import list_ports
 
 from Config.Constants import DEVICE_NAME_MNEMO
-from Models.PointModel import Point
-from Models.SectionModel import Section
-from Models.SurveyModel import Survey
+from Gui.Dialogs import ErrorDialog
+from Models.TableModels import Survey, Section, Point, Surveyors, Explorers, Contacts, QueryMixin
 
 
 class MnemoImporter:
@@ -25,8 +25,6 @@ class MnemoImporter:
         self.verbose = verbose
 
         self.import_list = None
-
-
         self.survey = None
         self.sections = []
         self.points  = []
@@ -103,21 +101,21 @@ class MnemoImporter:
     def get_data(self):
         if not self.import_list:
             raise Exception('No data available')
-        survey = self.get_survey()
-        return survey
+        survey_id = self.get_survey()
+        return survey_id
 
     def get_survey(self):
-        survey = Survey(device_name=DEVICE_NAME_MNEMO)
-        survey.save()
+        survey_id = Survey.insert_survey(device_name=DEVICE_NAME_MNEMO)
         index = 6
         while True:
-            section, index = self.get_section(index, survey.survey_id)
-            survey.append_section(section=section)
+            index = self.get_section(index, survey_id)
             index = index + 6
             if index > len(self.import_list):
                 break
 
-        return survey
+        # https://stackoverflow.com/questions/53781144/pyside-qabstractitemmodel-connect-datachanged
+        # Survey.dataChanged.emit(survey_id, 0)
+        return survey_id
 
     def get_section(self, start_from, survey_id):
         mnemo_mode = ''.join([
@@ -127,43 +125,52 @@ class MnemoImporter:
         ])
 
         mnemo_section_number = self.too_2byte_int(self.import_list[start_from + 3], self.import_list[start_from + 4])
-        section = Section(survey_id=survey_id, section_reference_id=mnemo_section_number,
-                          device_properties={"line_mode": mnemo_mode})
-        section_id = section.save()
-
+        section_id = Section.insert_section(
+            survey_id=survey_id,
+            section_reference_id=mnemo_section_number,
+            device_properties={"line_mode": mnemo_mode}
+        )
         index = start_from + 3
         point_reference_id = 1
         length_in = 0
-        azimuth_in = 0
         while True:
-            point, azimuth_in = self.get_point(index, point_reference_id, survey_id, section_id, length_in, azimuth_in)
-            section.append_point(point=point)
-            length_in = point.length_out
+            section_reference_id, length_in = self.get_point(index, point_reference_id, survey_id, section_id, length_in)
             point_reference_id = point_reference_id + 1
             index = index + self.LINE_BIT_COUNT
-            if point.section_reference_id != mnemo_section_number:
+            if section_reference_id != mnemo_section_number:
                 index = index + 1
                 break
             if index + self.LINE_BIT_COUNT > len(self.import_list):
                 break
-        return section, index
+        return index
 
-    def get_point(self, index, point_reference_id, survey_id, section_id, length_in=0, azimuth_in=0):
+    def get_point(self, index, point_reference_id, survey_id, section_id, length_in=0):
         imp = self.import_list
-        point = Point(survey_id=survey_id, section_id=section_id, point_reference_id=point_reference_id, length_in=length_in, azimuth_in=azimuth_in)
-        point.section_reference_id = self.too_2byte_int(imp[index], imp[index + 1])
+        section_reference_id = self.too_2byte_int(imp[index], imp[index + 1])
         index = index + 2
-        point.azimuth_in = azimuth_in
-        azimuth_next_in = self.too_2byte_int(imp[index], imp[index + 1]) / 10
-        point.azimuth_out = self.too_2byte_int(imp[index], imp[index + 1]) / 10
-        index = index + 4
-        point.length_out = self.too_2byte_int(imp[index], imp[index + 1]) / 100
+        azimuth_in = self.too_2byte_int(imp[index], imp[index + 1]) / 10
         index = index + 2
-        point.depth = self.too_2byte_int(imp[index], imp[index + 1])
+        azimuth_out = self.too_2byte_int(imp[index], imp[index + 1]) / 10
         index = index + 2
-        point.temperature = self.too_2byte_int(imp[index], imp[index + 1])
-        point.save()
-        return point, azimuth_next_in
+        length_out = self.too_2byte_int(imp[index], imp[index + 1]) / 100
+        index = index + 2
+        depth = self.too_2byte_int(imp[index], imp[index + 1])
+        index = index + 2
+        temperature = self.too_2byte_int(imp[index], imp[index + 1])
+
+        Point.insert_point(
+            survey_id=survey_id,
+            section_id=section_id,
+            section_reference_id=section_reference_id,
+            point_reference_id=point_reference_id,
+            length_in=length_in,
+            length_out=length_out,
+            azimuth_in=azimuth_in,
+            azimuth_out=azimuth_out,
+            depth=depth,
+            point_properties={'temperature': temperature}
+        )
+        return section_reference_id, length_out
 
     def too_2byte_int(self, byte_1: int, byte_2: int):
         hex_1 = self.twos_complement(byte_1)
@@ -180,9 +187,8 @@ class MnemoImporter:
 
 
 if __name__ == '__main__':
-    Survey.create_database_tables()
-    Section.create_database_tables()
-    Point.create_database_tables()
+    QueryMixin.init_db()
+    QueryMixin.create_tables()
 
     importer = MnemoImporter()
     importer.read_dump_file('/home/flip/Code/stickmaps/data_files/findingmnemo_orig.dmp')

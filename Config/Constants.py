@@ -13,3 +13,12 @@ TREE_ICON_SECTION = 'Assets/sectionIcon.png'
 TREE_ICON_POINT = 'Assets/pointIcon.png'
 
 DEVICE_NAME_MNEMO = "Mnemo"
+
+#SQL_DB_LOCATION = ":memory:"
+SQL_DB_LOCATION = "/tmp/stickmaps.sql"
+SQL_TABLE_SURVEYS = "surveys"
+SQL_TABLE_SECTIONS = "sections"
+SQL_TABLE_POINTS = "points"
+SQL_TABLE_CONTACTS = "contacts"
+SQL_TABLE_EXPLORERS = "explorers"
+SQL_TABLE_SURVEYORS = "surveyors"

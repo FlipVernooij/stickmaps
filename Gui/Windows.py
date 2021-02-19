@@ -1,14 +1,15 @@
-from PySide6.QtCore import QStringListModel
-from PySide6.QtGui import QIcon, Qt
-from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget
+from PySide6.QtCore import QDir
+from PySide6.QtGui import QIcon, Qt, QCloseEvent
+from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
+    QAbstractItemView, QMenu
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
     MAIN_WINDOW_ICON
+from Gui.Actions import TreeActions
 from Gui.Menus import MainMenu
 from Models.TreeViews import SurveyCollection
-from Models.PointModel import Point
-from Models.SectionModel import Section
-from Models.SurveyModel import Survey
+from Models.TableModels import QueryMixin
+
 
 class MainApplicationWindow(QMainWindow):
 
@@ -18,11 +19,21 @@ class MainApplicationWindow(QMainWindow):
         self.central_widget = QWidget(self)
         self.setWindowTitle(MAIN_WINDOW_TITLE)
         self.setWindowIcon(QIcon(MAIN_WINDOW_ICON))
+        self.init_database()
         self.tree_view = self.get_treenav()
         self.setup_interface()
         self.statusBar().showMessage('Loading ...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
-        self.init_database()
+
         self.showMaximized()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        event.accept()
+        response = QMessageBox.question(self, 'Quit application', 'Are you sure you want to quit?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if response == QMessageBox.Yes:
+            event.accept()
+        else:
+            event.ignore()
+
 
     def setup_interface(self):
         main_menu = MainMenu(self)
@@ -36,15 +47,28 @@ class MainApplicationWindow(QMainWindow):
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
 
     def get_treenav(self):
-        tree_view = QTreeView()
-        tree_model = SurveyCollection.get_instance()
-        tree_view.setModel(tree_model)
-        tree_view.setMinimumWidth(TREE_START_WIDTH)
-        tree_view.setMinimumWidth(TREE_MIN_WIDTH)
-        tree_view.show()
-        return tree_view
+        tree = QTreeView(self)
+        tree.setHeaderHidden(True)
+        tree.setSelectionBehavior(QAbstractItemView.SelectRows)
+        tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        tree.setContextMenuPolicy(Qt.ActionsContextMenu)
+
+        context_menu = QMenu(tree)
+        actions = TreeActions(tree, context_menu)
+        tree.addAction(actions.edit())
+
+        """
+            This should more or less be good, see SurveyCollection for details.
+        """
+
+        tree.setModel(SurveyCollection())
+
+        tree.setMinimumWidth(TREE_START_WIDTH)
+        tree.setMinimumWidth(TREE_MIN_WIDTH)
+        tree.show()
+        return tree
 
     def init_database(self):
-        Survey.create_database_tables()
-        Section.create_database_tables()
-        Point.create_database_tables()
+        QueryMixin.init_db()
+        QueryMixin.create_tables()
+

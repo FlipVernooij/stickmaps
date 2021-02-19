@@ -1,7 +1,10 @@
-from PySide6.QtCore import QCoreApplication
-from PySide6.QtWidgets import QErrorMessage
+from PySide6.QtCore import QCoreApplication, QTime, QDateTime
+from PySide6.QtGui import Qt
+from PySide6.QtSql import QSqlTableModel
+from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, QMessageBox, QApplication, QFormLayout, \
+    QLineEdit, QDateTimeEdit, QTextEdit, QDialogButtonBox
 
-from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT
+from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, SQL_TABLE_SURVEYS, APPLICATION_NAME
 
 
 class ErrorDialog:
@@ -32,11 +35,9 @@ class ErrorDialog:
         }
     }
 
-
-
-
     @classmethod
-    def show_error(cls, parent_window, error_key):
+    def show_error_key(cls, parent_window, error_key):
+
         try:
             title = cls.errorMessages[error_key]['title']
             body = cls.errorMessages[error_key]['body']
@@ -44,7 +45,6 @@ class ErrorDialog:
             title = cls.errorMessages['UNKNOWN_ERROR']['title']
             body = cls.errorMessages['UNKNOWN_ERROR']['body'] + "<p><b>" + error_key + "</b></p>"
             print(error_key)
-
 
         window = QErrorMessage(parent_window)
         window.resize(500, 250)
@@ -57,3 +57,89 @@ class ErrorDialog:
             pass
 
         window.show()
+
+    @classmethod
+    def show(cls, message):
+        # how do I know or i am in a main window... or headless
+        if QApplication.instance() is not None:
+            QMessageBox.warning(None, APPLICATION_NAME, message)
+        else:
+            print(f"ERROR: {message}")
+
+
+class EditSurveysDialog(QDialog):
+
+    _instance_ = None
+
+    @classmethod
+    def display(cls, parent):
+        cls._instance_ = EditSurveysDialog(parent)
+        cls._instance_.show()
+
+    def __init__(self, parent):
+        super(EditSurveysDialog, self).__init__(parent)
+        model = QSqlTableModel(self)
+        model.setTable(SQL_TABLE_SURVEYS)
+        model.setEditStrategy(QSqlTableModel.OnFieldChange)
+
+        model.setHeaderData(0, Qt.Horizontal, "Survey ID")
+        model.setHeaderData(1, Qt.Horizontal, "Device name")
+        model.setHeaderData(2, Qt.Horizontal, "Survey date/time")
+        model.setHeaderData(3, Qt.Horizontal, "Survey name")
+        model.setHeaderData(4, Qt.Horizontal, "Survey comment")
+        model.select()
+
+        view = QTableView(self)
+        view.setModel(model)
+        view.resizeColumnsToContents()
+
+
+        self.setWindowTitle('Edit surveys')
+        self.resize(800, 400)
+
+        layout = QHBoxLayout()
+        layout.addWidget(view)
+        self.setLayout(layout)
+
+
+class EditSurveyDialog(QDialog):
+
+    def __init__(self, parent, survey: dict):
+        super().__init__(parent)
+        self.survey = survey
+
+        layout = QFormLayout()
+        self.name_field = QLineEdit(survey['survey_name'])
+        layout.addRow('&Name', self.name_field)
+
+        # should use QTime as argument here? survey['survey_datetime']
+        time = QDateTime()
+        time.setSecsSinceEpoch(round(float(survey['survey_datetime'])))
+        self.datetime_field = QDateTimeEdit(time)
+        layout.addRow('&Date', self.datetime_field)
+
+        self.device_field = QLineEdit(survey['device_name'])
+        layout.addRow('&Device', self.device_field)
+
+        self.comment_field = QTextEdit(survey['survey_comment'])
+        layout.addRow('&Comment', self.comment_field)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
+        layout.addRow(buttons)
+
+        buttons.accepted.connect(self.save)
+        buttons.rejected.connect(self.cancel)
+
+        self.setWindowTitle('Edit Survey')
+        self.resize(800, 400)
+        self.setLayout(layout)
+
+    def save(self):
+        survey_dict = self.survey
+        survey_dict['survey_name'] = self.name_field.text()
+        survey_dict['survey_comment'] = self.comment_field.toPlainText()
+        survey_dict['device_name'] = self.device_field.text()
+        self.close()
+
+    def cancel(self):
+        self.close()
