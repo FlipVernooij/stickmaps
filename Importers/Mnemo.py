@@ -1,14 +1,11 @@
 import time
 from datetime import datetime
-from pprint import pprint
 
 import serial
-from PySide6.QtSql import QSqlDatabase
 from serial.tools import list_ports
 
 from Config.Constants import DEVICE_NAME_MNEMO
-from Gui.Dialogs import ErrorDialog
-from Models.TableModels import Survey, Section, Point, Surveyors, Explorers, Contacts, QueryMixin
+from Models.TableModels import Survey, Section, Point, QueryMixin
 
 
 class MnemoImporter:
@@ -98,7 +95,7 @@ class MnemoImporter:
         text_file.write(self.import_list)
         text_file.close()
 
-    def get_data(self):
+    def get_data(self) -> int:
         if not self.import_list:
             raise Exception('No data available')
         survey_id = self.get_survey()
@@ -168,7 +165,8 @@ class MnemoImporter:
             azimuth_in=azimuth_in,
             azimuth_out=azimuth_out,
             depth=depth,
-            point_properties={'temperature': temperature}
+            point_properties={'temperature': temperature},
+            point_name=f"Point {point_reference_id}"
         )
         return section_reference_id, length_out
 

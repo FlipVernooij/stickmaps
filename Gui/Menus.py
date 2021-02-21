@@ -1,3 +1,5 @@
+from PySide6.QtGui import QAction
+
 from Gui.Actions import GlobalActions
 
 class MainMenu:
@@ -14,6 +16,10 @@ class MainMenu:
         actions = GlobalActions(self.parent_window)
         mb = self.parent_window.menuBar()
         fm = mb.addMenu('File')
+
+        fm.addAction(actions.save())
+        fm.addAction(actions.save_as())
+        fm.addAction(actions.open())
         fm.addAction(actions.exit_application())
 
     def set_edit_menu(self):

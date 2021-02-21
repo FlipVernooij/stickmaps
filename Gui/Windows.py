@@ -1,4 +1,3 @@
-from PySide6.QtCore import QDir
 from PySide6.QtGui import QIcon, Qt, QCloseEvent
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
     QAbstractItemView, QMenu
@@ -7,7 +6,7 @@ from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, T
     MAIN_WINDOW_ICON
 from Gui.Actions import TreeActions
 from Gui.Menus import MainMenu
-from Models.TreeViews import SurveyCollection
+from Models.ItemModels import SurveyCollection
 from Models.TableModels import QueryMixin
 
 
@@ -15,11 +14,11 @@ class MainApplicationWindow(QMainWindow):
 
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
+        self.tree_view = None
         self.central_widget = QWidget(self)
         self.setWindowTitle(MAIN_WINDOW_TITLE)
         self.setWindowIcon(QIcon(MAIN_WINDOW_ICON))
         self.init_database()
-        self.tree_view = self.get_treenav()
         self.setup_interface()
         self.statusBar().showMessage('Loading ...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
@@ -33,43 +32,63 @@ class MainApplicationWindow(QMainWindow):
         else:
             event.ignore()
 
-
     def setup_interface(self):
         main_menu = MainMenu(self)
         main_menu.generate()
-
         self.setCentralWidget(self.central_widget)
         dock = QDockWidget("Survey data", self)
         dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
         dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.tree_view = SurveyOverview(self)
         dock.setWidget(self.tree_view)
+        self.tree_view.show()
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
-
-    def get_treenav(self):
-        tree = QTreeView(self)
-        tree.setHeaderHidden(True)
-        tree.setUniformRowHeights(True)
-        tree.setAlternatingRowColors(True)
-        tree.setSelectionBehavior(QAbstractItemView.SelectRows)
-        tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        tree.setContextMenuPolicy(Qt.ActionsContextMenu)
-
-
-        context_menu = QMenu(tree)
-        actions = TreeActions(tree, context_menu)
-        tree.addAction(actions.edit())
-
-        model = SurveyCollection()
-        tree.setModel(model)
-
-        model.dataChanged.connect(tree.dataChanged)
-
-        tree.setMinimumWidth(TREE_START_WIDTH)
-        tree.setMinimumWidth(TREE_MIN_WIDTH)
-        tree.show()
-        return tree
 
     def init_database(self):
         QueryMixin.init_db()
         QueryMixin.create_tables()
 
+
+class SurveyOverview(QTreeView):
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.main_window = parent
+
+        self.setHeaderHidden(True)
+        self.setUniformRowHeights(True)
+        self.setAlternatingRowColors(True)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.build_contextmenu)
+
+        model = SurveyCollection()
+        self.setModel(model)
+
+        self.setMinimumWidth(TREE_START_WIDTH)
+        self.setMinimumWidth(TREE_MIN_WIDTH)
+
+    def build_contextmenu(self, pos):
+        menu = QMenu(self)
+        # menu.entry = self.tree_view.entry
+        actions = TreeActions(self, menu)
+        if len(self.selectedIndexes()) == 0:
+            return  # add import menu here!
+
+        index = self.selectedIndexes()[0]
+        model = index.model()
+        item = model.itemFromIndex(index)
+
+        if item.item_type == model.ITEM_TYPE_SURVEY:
+            menu.addAction(actions.edit_survey())
+            menu.addAction(actions.edit_sections())
+            menu.addAction(actions.remove_survey())
+        elif item.item_type == model.ITEM_TYPE_SECTION:
+            menu.addAction(actions.edit_section())
+            menu.addAction(actions.edit_points())
+            menu.addAction(actions.remove_section())
+        elif item.item_type == model.ITEM_TYPE_SECTION:
+            menu.addAction(actions.edit_point())
+
+        menu.popup(self.mapToGlobal(pos))

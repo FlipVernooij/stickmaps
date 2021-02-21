@@ -2,11 +2,11 @@ import json
 import sys
 from datetime import datetime
 
+from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtSql import QSqlTableModel, QSqlQuery, QSqlRelationalTableModel, QSqlRelation, QSqlDatabase
 
 from Config.Constants import SQL_TABLE_POINTS, SQL_TABLE_SECTIONS, SQL_TABLE_SURVEYS, SQL_TABLE_CONTACTS, \
     SQL_TABLE_EXPLORERS, SQL_TABLE_SURVEYORS, SQL_DB_LOCATION
-from Gui.Dialogs import ErrorDialog
 
 
 class QueryMixin:
@@ -16,16 +16,27 @@ class QueryMixin:
         db = QSqlDatabase.addDatabase('QSQLITE')
         db.setDatabaseName(SQL_DB_LOCATION)
         if not db.open():
-            ErrorDialog.show("Database Error: {}".format(db.lastError()))
+            raise ConnectionError("Database Error: {}".format(db.lastError()))
 
     @classmethod
     def create_tables(cls):
         Survey.create_database_tables()
         Section.create_database_tables()
         Point.create_database_tables()
-        Contacts.create_database_tables()
-        Surveyors.create_database_tables()
-        Explorers.create_database_tables()
+        Contact.create_database_tables()
+        Surveyor.create_database_tables()
+        Explorer.create_database_tables()
+
+    @classmethod
+    def dump_tables(cls):
+        return {
+            SQL_TABLE_SURVEYS: Survey.dump_table(),
+            SQL_TABLE_SECTIONS: Section.dump_table(),
+            SQL_TABLE_POINTS: Point.dump_table(),
+            SQL_TABLE_CONTACTS: Contact.dump_table(),
+            SQL_TABLE_SURVEYORS: Surveyor.dump_table(),
+            SQL_TABLE_EXPLORERS: Explorer.dump_table()
+        }
 
     @classmethod
     def exec(cls, sql):
@@ -33,7 +44,7 @@ class QueryMixin:
         return query.exec_(sql)
 
     @classmethod
-    def insert(cls, table_name: str, values: dict):
+    def insert(cls, table_name: str, values: dict) -> int:
         col_names = ', '.join(values.keys())
         placeholders = ', '.join('?' for x in values.values())
         query = 'INSERT INTO {} ({})VALUES({})'.format(table_name, col_names, placeholders)
@@ -50,7 +61,7 @@ class QueryMixin:
         return insert_id
 
     @classmethod
-    def update(cls, table_name: str, values: dict, where_str: str, params: list = []):
+    def update(cls, table_name: str, values: dict, where_str: str, params: list = []) -> int:
         update_cols = ', '.join('{}=?'.format(x) for x in values.keys())
         query = 'UPDATE {} SET {} WHERE {}'.format(table_name, update_cols, where_str)
         obj = QSqlQuery()
@@ -65,7 +76,19 @@ class QueryMixin:
         return obj.numRowsAffected()
 
     @classmethod
-    def get(cls, table_name, where_str, params):
+    def delete(cls, table_name: str, where_str: str, params: list = []) -> int:
+        query = f'DELETE FROM {table_name} WHERE {where_str}'
+        obj = QSqlQuery()
+        obj.prepare(query)
+
+        for value in params:
+            obj.addBindValue(value)
+
+        obj.exec_()
+        return obj.numRowsAffected()
+
+    @classmethod
+    def get(cls, table_name, where_str, params) -> dict:
         if type(params) is not list:
             params = [params]
 
@@ -125,6 +148,10 @@ class Survey(QSqlTableModel, QueryMixin):
         cls.exec(query)
 
     @classmethod
+    def get_survey(cls, survey_id) -> dict:
+        return cls.get(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
+
+    @classmethod
     def insert_survey(cls, device_name: str) -> int:
         model = cls()
         model.select()
@@ -142,8 +169,22 @@ class Survey(QSqlTableModel, QueryMixin):
             last_insert_id = model.query().lastInsertId()
             return last_insert_id
 
-        ErrorDialog.show("Database Error: {}".format(model.query().lastError()))
-        sys.exit(1)
+        raise SyntaxError('Database error: Could not insert survey')
+
+    @classmethod
+    def update_survey(cls, values: dict, survey_id: int) -> int:
+        return cls.update(SQL_TABLE_SURVEYS, values, 'survey_id=?', [survey_id])
+
+    @classmethod
+    def delete_survey(cls, survey_id: int) -> int:
+        a = cls.delete(SQL_TABLE_POINTS, 'survey_id=?', [survey_id])
+        b = cls.delete(SQL_TABLE_SECTIONS, 'survey_id=?', [survey_id])
+        c = cls.delete(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
+        return a + b + c
+
+    @classmethod
+    def dump_table(cls):
+        return cls.fetch(f"SELECT * FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id ASC")
 
     def __init__(self):
         super().__init__()
@@ -172,6 +213,10 @@ class Section(QSqlTableModel, QueryMixin):
         cls.exec(query)
 
     @classmethod
+    def get_section(cls, section_id) -> dict:
+        return cls.get(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
+
+    @classmethod
     def insert_section(cls, survey_id: int, section_reference_id: int, device_properties: dict) -> int:
         model = cls()
         model.select()
@@ -190,14 +235,34 @@ class Section(QSqlTableModel, QueryMixin):
             last_insert_id = model.query().lastInsertId()
             return last_insert_id
 
-        ErrorDialog.show("Database Error: {}".format(model.query().lastError()))
-        sys.exit(1)
+        raise SyntaxError('Database error: Could not insert section')
+
+    @classmethod
+    def update_section(cls, values: dict, section_id: int) -> int:
+        return cls.update(SQL_TABLE_SECTIONS, values, 'section_id=?', [section_id])
+
+    @classmethod
+    def delete_section(cls, section_id: int) -> int:
+        a = cls.delete(SQL_TABLE_POINTS, 'section_id=?', [section_id])
+        b = cls.delete(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
+        return a + b
+
+    @classmethod
+    def dump_table(cls):
+        return cls.fetch(f"SELECT * FROM {SQL_TABLE_SECTIONS} ORDER BY section_id ASC")
 
     def __init__(self):
         super().__init__()
         self.setTable(SQL_TABLE_SECTIONS)
         self.setEditStrategy(self.OnManualSubmit)
         # self.setRelation(1, QSqlRelation(SQL_TABLE_SURVEYS, 'survey_id', 'survey_name'))
+
+    def flags(self, index: QModelIndex):
+        flags = Qt.NoItemFlags
+        if index.column() in [2, 3]:
+            return flags
+
+        return flags | Qt.ItemIsEditable | Qt.ItemIsEnabled
 
 
 class Point(QSqlTableModel, QueryMixin):
@@ -236,7 +301,8 @@ class Point(QSqlTableModel, QueryMixin):
                       azimuth_in: float,
                       azimuth_out: float,
                       depth: float,
-                      point_properties: dict = {}
+                      point_properties: dict = {},
+                      point_name: str = ''
                       ) -> int:
         model = cls()
         model.select()
@@ -254,6 +320,7 @@ class Point(QSqlTableModel, QueryMixin):
         record.setValue('azimuth_out', azimuth_out)
         record.setValue('depth', depth)
         record.setValue('point_properties', json.dumps(point_properties))
+        record.setValue('point_name', point_name)
 
         # -1 is set to indicate that it will be added to the last row
         if model.insertRecord(-1, record):
@@ -261,8 +328,15 @@ class Point(QSqlTableModel, QueryMixin):
             last_insert_id = model.query().lastInsertId()
             return last_insert_id
 
-        ErrorDialog.show("Database Error: {}".format(model.query().lastError()))
-        sys.exit(1)
+        raise SyntaxError('Database error: Could not insert point')
+
+    @classmethod
+    def update_point(cls, values: dict, point_id: int) -> int:
+        return cls.update(SQL_TABLE_POINTS, values, 'point_id=?', [point_id])
+
+    @classmethod
+    def dump_table(cls):
+        return cls.fetch(f"SELECT * FROM {SQL_TABLE_POINTS} ORDER BY point_id ASC")
 
     def __init__(self):
         super().__init__()
@@ -273,7 +347,7 @@ class Point(QSqlTableModel, QueryMixin):
         # self.setRelation(2, QSqlRelation(SQL_TABLE_SECTIONS, 'section_id', 'section_name'))
 
 
-class Contacts(QSqlTableModel, QueryMixin):
+class Contact(QSqlTableModel, QueryMixin):
 
     @classmethod
     def create_database_tables(cls):
@@ -285,12 +359,16 @@ class Contacts(QSqlTableModel, QueryMixin):
                """
         cls.exec(query)
 
+    @classmethod
+    def dump_table(cls):
+        return cls.fetch(f"SELECT * FROM {SQL_TABLE_CONTACTS} ORDER BY contact_id ASC")
+
     def __init__(self):
         super().__init__()
         self.setTable(SQL_TABLE_CONTACTS)
 
 
-class Explorers(QSqlRelationalTableModel, QueryMixin):
+class Explorer(QSqlRelationalTableModel, QueryMixin):
 
     @classmethod
     def create_database_tables(cls):
@@ -304,6 +382,10 @@ class Explorers(QSqlRelationalTableModel, QueryMixin):
                """
         cls.exec(query)
 
+    @classmethod
+    def dump_table(cls):
+        return cls.fetch(f"SELECT * FROM {SQL_TABLE_EXPLORERS} ORDER BY explorer_id ASC")
+
     def __init__(self):
         super().__init__()
         self.setTable(SQL_TABLE_EXPLORERS)
@@ -311,7 +393,7 @@ class Explorers(QSqlRelationalTableModel, QueryMixin):
         self.setRelation(2, QSqlRelation(SQL_TABLE_CONTACTS, 'contact_id', 'name'))
 
 
-class Surveyors(QSqlRelationalTableModel, QueryMixin):
+class Surveyor(QSqlRelationalTableModel, QueryMixin):
 
     @classmethod
     def create_database_tables(cls):
@@ -324,6 +406,10 @@ class Surveyors(QSqlRelationalTableModel, QueryMixin):
                    )
                """
         cls.exec(query)
+
+    @classmethod
+    def dump_table(cls):
+        return cls.fetch(f"SELECT * FROM {SQL_TABLE_SURVEYORS} ORDER BY surveyor_id ASC")
 
     def __init__(self):
         super().__init__()
