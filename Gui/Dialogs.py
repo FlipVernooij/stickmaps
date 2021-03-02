@@ -2,7 +2,7 @@ from PySide6.QtCore import QDateTime
 from PySide6.QtGui import Qt
 from PySide6.QtSql import QSqlTableModel
 from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, QMessageBox, QApplication, QFormLayout, \
-    QLineEdit, QDateTimeEdit, QTextEdit, QDialogButtonBox, QVBoxLayout
+    QLineEdit, QDateTimeEdit, QTextEdit, QDialogButtonBox, QVBoxLayout, QDoubleSpinBox
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME
 from Models.TableModels import Section, Survey, Station
@@ -237,7 +237,7 @@ class EditSectionDialog(QDialog):
         self.id_field = QLineEdit(str(self.section['section_reference_id']))
         self.id_field.setClearButtonEnabled(False)
         self.id_field.setDisabled(True)
-        layout.addRow('&Device id', self.id_field)
+        layout.addRow('&Section id', self.id_field)
 
         self.name_field = QLineEdit(self.section['section_name'])
         self.name_field.setClearButtonEnabled(True)
@@ -346,4 +346,104 @@ class EditStationsDialog(QDialog):
     def cancel(self):
         self.close()
 
+
+class EditStationDialog(QDialog):
+
+    def __init__(self, parent, item):
+        super().__init__(parent)
+        self.station = Station.get_station(item.station_id)
+
+        layout = QFormLayout()
+        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.id_field = QLineEdit(str(self.station['station_reference_id']))
+        self.id_field.setClearButtonEnabled(False)
+        self.id_field.setDisabled(True)
+        layout.addRow('&Station id', self.id_field)
+
+        self.name_field = QLineEdit(self.station['station_name'])
+        self.name_field.setClearButtonEnabled(True)
+        layout.addRow('&Name', self.name_field)
+
+        self.comment_field = QTextEdit(self.station['station_comment'])
+        layout.addRow('&Comment', self.comment_field)
+
+        self.length_in = QDoubleSpinBox()
+        self.length_in.setMaximum(1000)
+        self.length_in.setMinimum(0)
+        self.length_in.setValue(self.station['length_in'])
+        layout.addRow('&Length in', self.length_in)
+
+        self.azimuth_in = QDoubleSpinBox()
+        self.azimuth_in.setMaximum(360)
+        self.azimuth_in.setMinimum(0)
+        self.azimuth_in.setValue(self.station['azimuth_in'])
+        layout.addRow('&Azimuth in', self.azimuth_in)
+
+        self.depth = QDoubleSpinBox()
+        self.depth.setMaximum(0)
+        self.depth.setMinimum(200)
+        self.depth.setValue(self.station['depth'])
+        layout.addRow('&Depth', self.depth)
+
+        self.temperature = QDoubleSpinBox()
+        if isinstance(self.station['temperature'], float):
+            self.temperature.setValue(self.station['temperature'])
+        else:
+            self.temperature.setValue(0.0)
+
+        layout.addRow('&Temperature', self.temperature)
+
+        self.azimuth_out = QDoubleSpinBox()
+        self.azimuth_out.setMaximum(360)
+        self.azimuth_out.setMinimum(0)
+        self.azimuth_out.setValue(self.station['azimuth_out'])
+        layout.addRow('&Azimuth out', self.azimuth_out)
+
+        self.length_out = QDoubleSpinBox()
+        self.length_out.setMaximum(1000)
+        self.length_out.setMinimum(0)
+        self.length_out.setValue(self.station['length_out'])
+        layout.addRow('&Length out', self.length_out)
+
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Reset | QDialogButtonBox.Cancel | QDialogButtonBox.Save)
+        layout.addRow(buttons)
+
+        buttons.accepted.connect(self.save)
+        buttons.rejected.connect(self.cancel)
+        buttons.button(QDialogButtonBox.Reset).clicked.connect(self.reset)
+
+        self.setWindowTitle('Edit Station')
+        self.resize(800, 400)
+        self.setLayout(layout)
+
+    def save(self):
+        station_dict = self.station
+        station_dict['station_name'] = self.name_field.text()
+        station_dict['station_comment'] = self.comment_field.toPlainText()
+        station_dict['length_in'] = self.length_in.value()
+        station_dict['azimuth_in'] = self.azimuth_in.value()
+        station_dict['depth'] = self.depth.value()
+        station_dict['temperature'] = self.temperature.value()
+        station_dict['azimuth_out'] = self.azimuth_out.value()
+        station_dict['length_out'] = self.length_out.value()
+
+        tree = self.parentWidget()
+        model = tree.model()
+        model.update_station(data=station_dict, index=tree.selectedIndexes()[0])
+        self.close()
+
+    def reset(self):
+        station_dict = self.station
+        self.name_field.setText(station_dict['station_name'])
+        self.comment_field.setText(station_dict['station_comment'])
+        self.length_in.setValue(station_dict['length_in'])
+        self.azimuth_in.setValue(station_dict['azimuth_in'])
+        self.depth.setValue(station_dict['depth'])
+        self.temperature.setValue(station_dict['temperature'])
+        self.azimuth_out.setValue(station_dict['azimuth_out'])
+        self.length_out.setValue(station_dict['length_out'])
+
+    def cancel(self):
+        self.close()
 

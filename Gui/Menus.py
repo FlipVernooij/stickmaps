@@ -1,6 +1,5 @@
-from PySide6.QtGui import QAction
-
 from Gui.Actions import GlobalActions
+
 
 class MainMenu:
 

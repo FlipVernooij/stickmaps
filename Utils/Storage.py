@@ -31,7 +31,6 @@ class SurveyData():
             return
         return self._load_to_db(data['database'])
 
-
     def _open_file(self) -> dict:
         data = self._read()
         data = self._decode(data)

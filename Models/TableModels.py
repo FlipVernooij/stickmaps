@@ -1,21 +1,31 @@
 import json
 from datetime import datetime
 
-from PySide6.QtCore import QModelIndex, Qt
+from PySide6.QtCore import QModelIndex, Qt, QSettings
 from PySide6.QtSql import QSqlTableModel, QSqlQuery, QSqlRelationalTableModel, QSqlRelation, QSqlDatabase
 
 from Config.Constants import SQL_TABLE_STATIONS, SQL_TABLE_SECTIONS, SQL_TABLE_SURVEYS, SQL_TABLE_CONTACTS, \
-    SQL_TABLE_EXPLORERS, SQL_TABLE_SURVEYORS, SQL_DB_LOCATION
+    SQL_TABLE_EXPLORERS, SQL_TABLE_SURVEYORS, SQL_DB_LOCATION, SQL_CONNECTION_NAME
 
 
 class QueryMixin:
 
     @classmethod
     def init_db(cls):
-        db = QSqlDatabase.addDatabase('QSQLITE')
+        db = QSqlDatabase.addDatabase('QSQLITE', SQL_CONNECTION_NAME)
         db.setDatabaseName(SQL_DB_LOCATION)
         if not db.open():
             raise ConnectionError("Database Error: {}".format(db.lastError()))
+
+    @classmethod
+    def close_db(cls):
+        cls.drop_tables()
+        # @todo this does not seem to remove the actual database(file)
+        #       Without dropping the tables, data will persist.
+        db = QSqlDatabase.database()
+        db.close()
+        del db
+        QSqlDatabase.removeDatabase(SQL_CONNECTION_NAME)
 
     @classmethod
     def create_tables(cls):
@@ -34,7 +44,6 @@ class QueryMixin:
         Station.drop_database_tables()
         Section.drop_database_tables()
         Survey.drop_database_tables()
-
 
     @classmethod
     def dump_tables(cls):
@@ -58,11 +67,15 @@ class QueryMixin:
 
     @classmethod
     def exec(cls, sql):
+        settings = QSettings()
+        settings.setValue('SaveFile/is_changed', True)
         query = QSqlQuery()
         return query.exec_(sql)
 
     @classmethod
     def insert(cls, table_name: str, values: dict) -> int:
+        settings = QSettings()
+        settings.setValue('SaveFile/is_changed', True)
         col_names = ', '.join(values.keys())
         placeholders = ', '.join('?' for x in values.values())
         query = 'INSERT INTO {} ({})VALUES({})'.format(table_name, col_names, placeholders)
@@ -79,17 +92,19 @@ class QueryMixin:
         return insert_id
 
     @classmethod
-    def insert_bulk(cls, table_name: str, values: list, max_batch_size: int=100, start_at: int=0) -> int:
+    def insert_bulk(cls, table_name: str, values: list, max_batch_size: int=10, start_at: int=0) -> int:
+        settings = QSettings()
+        settings.setValue('SaveFile/is_changed', True)
         col_names = ', '.join(values[0].keys())
         new_start_at = 0
         placeholders = []
         params = []
         for index, row in enumerate(values[start_at::]):
-            if index > max_batch_size:
-                new_start_at = index
-                break
             placeholders.append('({})'.format(', '.join('?' for x in row.values())))
             params.extend(row.values())
+            if index == max_batch_size - 1:
+                new_start_at = start_at + index + 1
+                break
 
         placeholder = ', '.join(placeholders)
         query = f'INSERT INTO {table_name} ({col_names})VALUES {placeholder}'
@@ -99,16 +114,16 @@ class QueryMixin:
             obj.addBindValue(value)
 
         if obj.exec_() is False:
-            raise SyntaxError('Sql insert query failed!')
+            raise SyntaxError('Sql bulk insert query failed!')
         row_count = obj.numRowsAffected()
         if new_start_at > 0:
             row_count = row_count + cls.insert_bulk(table_name, values, max_batch_size, new_start_at)
         return row_count
 
-
-
     @classmethod
     def update(cls, table_name: str, values: dict, where_str: str, params: list = []) -> int:
+        settings = QSettings()
+        settings.setValue('SaveFile/is_changed', True)
         update_cols = ', '.join('{}=?'.format(x) for x in values.keys())
         query = 'UPDATE {} SET {} WHERE {}'.format(table_name, update_cols, where_str)
         obj = QSqlQuery()
@@ -124,6 +139,8 @@ class QueryMixin:
 
     @classmethod
     def delete(cls, table_name: str, where_str: str, params: list = []) -> int:
+        settings = QSettings()
+        settings.setValue('SaveFile/is_changed', True)
         query = f'DELETE FROM {table_name} WHERE {where_str}'
         obj = QSqlQuery()
         obj.prepare(query)
@@ -414,6 +431,9 @@ class Station(QSqlTableModel, QueryMixin):
     def update_station(cls, values: dict, station_id: int) -> int:
         return cls.update(SQL_TABLE_STATIONS, values, 'station_id=?', [station_id])
 
+    @classmethod
+    def delete_station(cls, station_id: int) -> int:
+        return cls.delete(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
 
     @classmethod
     def dump_table(cls):
@@ -425,6 +445,9 @@ class Station(QSqlTableModel, QueryMixin):
             return 0
         return cls.insert_bulk(SQL_TABLE_STATIONS, table_data)
 
+    @classmethod
+    def get_station(cls, station_id) -> dict:
+        return cls.get(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
 
     def __init__(self):
         super().__init__()

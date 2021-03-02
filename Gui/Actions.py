@@ -1,14 +1,17 @@
+import os
 import pathlib
 
-from PySide6.QtCore import QDir
+from PySide6.QtCore import QSettings
 from PySide6.QtGui import QAction
 
 from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialog
 
-from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, APPLICATION_FILE_EXTENSION
+from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, APPLICATION_FILE_EXTENSION, \
+    MAIN_WINDOW_TITLE
 from Config.KeyboardShortcuts import KEY_IMPORT_MNEMO_CONNECT, KEY_IMPORT_MNEMO_DUMP_FILE, KEY_QUIT_APPLICATION, \
     KEY_SAVE, KEY_SAVE_AS, KEY_OPEN
-from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditSectionsDialog, EditSectionDialog, EditStationsDialog
+from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditSectionsDialog, EditSectionDialog, EditStationsDialog, \
+    EditStationDialog
 from Gui.Dialogs import EditSurveysDialog
 from Importers.Mnemo import MnemoImporter
 from Models.ItemModels import SurveyCollection
@@ -17,8 +20,6 @@ from Utils.Storage import SurveyData
 
 class GlobalActions:
 
-    current_file_name = None;
-
     def __init__(self, parent_window):
         self.parent_window = parent_window
 
@@ -26,15 +27,8 @@ class GlobalActions:
         action = QAction('Exit', self.parent_window)
         action.setShortcut(KEY_QUIT_APPLICATION)
 
-        action.triggered.connect(lambda: self.exit_application_callback())
+        action.triggered.connect(self.parent_window.close)
         return action
-
-    def exit_application_callback(self):
-        # @todo I need to free up the memory by removing the Sqlite database.
-       # if self.parent_window.tree_view.model().rowCount() > 0:
-            # need to check or the file is saved or not...
-
-        self.parent_window.close
 
     def save(self):
         action = QAction('Save', self.parent_window)
@@ -43,12 +37,15 @@ class GlobalActions:
         return action
 
     def save_callback(self):
-        if self.current_file_name is not None:
-            file_name = self.current_file_name
+        settings = QSettings()
+        file_name = settings.value('SaveFile/current_file_name', None)
+        if file_name is not None:
             save = SurveyData(file_name)
             save.save_to_file()
             self.current_file_name = file_name
             self.parent_window.statusBar().showMessage('File saved.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+            settings = QSettings()
+            settings.setValue('SaveFile/is_changed', False)
         else:
             self.save_as_callback()
 
@@ -59,6 +56,7 @@ class GlobalActions:
         return action
 
     def save_as_callback(self):
+        settings = QSettings()
         self.parent_window.statusBar().showMessage('Saving file, do not exit.')
         file_regex = f'(*.{APPLICATION_FILE_EXTENSION})'
         file_ident = f'{APPLICATION_NAME} {file_regex}'
@@ -68,7 +66,7 @@ class GlobalActions:
         dialog.setDefaultSuffix(APPLICATION_FILE_EXTENSION)
         dialog.setAcceptMode(QFileDialog.AcceptSave)
         dialog.setNameFilters([file_ident])
-        dialog.setDirectory(str(pathlib.Path.home()))
+        dialog.setDirectory(settings.value('SaveFile/last_path', str(pathlib.Path.home())))
         dialog.setOption(QFileDialog.DontUseNativeDialog)
         if dialog.exec_() == QDialog.Accepted:
             file_name = dialog.selectedFiles()[0]
@@ -78,6 +76,10 @@ class GlobalActions:
             save.save_to_file()
             self.current_file_name = file_name
             self.parent_window.statusBar().showMessage('File saved.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+
+            settings.setValue('SaveFile/is_changed', False)
+            settings.setValue('SaveFile/last_path', os.path.dirname(file_name))
+            self._update_window_title(file_name)
         else:
             self.parent_window.statusBar().showMessage('File NOT saved.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
@@ -88,13 +90,16 @@ class GlobalActions:
         return action
 
     def open_callback(self):
+        self._check_if_save_required()
+        settings = QSettings()
+        path = settings.value('SaveFile/last_path', str(pathlib.Path.home()))
         try:
             file_regex = f'(*.{APPLICATION_FILE_EXTENSION})'
             file_ident = f'{APPLICATION_NAME} {file_regex}'
             name = QFileDialog.getOpenFileName(
                 parent=self.parent_window,
                 caption="Open file",
-                dir=str(pathlib.Path.home()),
+                dir=path,
                 filter=file_ident,
                 selectedFilter=file_ident,
                 options=QFileDialog.Options() | QFileDialog.DontUseNativeDialog
@@ -107,7 +112,12 @@ class GlobalActions:
             save = SurveyData(name)
             save.load_from_file()
             self.parent_window.tree_view.model().reload_model()
+            self._update_window_title(name)
 
+            settings = QSettings()
+            settings.setValue('SaveFile/is_changed', False)
+            settings.setValue('SaveFile/last_path', os.path.dirname(name))
+            settings.setValue('SaveFile/current_file_name', name)
         except Exception as err_mesg:
             ErrorDialog.show_error_key(self.parent_window, str(err_mesg))
 
@@ -136,13 +146,13 @@ class GlobalActions:
         self.parent_window.statusBar().showMessage('Loading mnemo dump file...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
         try:
             file = QFileDialog(self.parent_window)
-
+            settings = QSettings()
             options = file.Options() | file.DontUseNativeDialog
 
             file.setOptions(options)
             file.setWindowTitle('Select Mnemo .dmp file to load')
             file.setNameFilters(['Mnemo dump file (*.dmp)', 'All files (*)'])
-            file.setDirectory(str(pathlib.Path.home()))
+            file.setDirectory(settings.value('SaveFile/last_path_mnemo_import', str(pathlib.Path.home())))
 
             if file.exec() == QFileDialog.Accepted:
                 file_name = file.selectedFiles()[0]
@@ -152,7 +162,7 @@ class GlobalActions:
                 # I need to get the treeview somehow.
                 model = self.parent_window.tree_view.model()
                 model.append_survey_from_db(survey_id)
-                foo = 1
+                settings.setValue('SaveFile/last_path_mnemo_import', os.path.dirname(file_name))
 
         except Exception as err_mesg:
             ErrorDialog.show_error_key(self.parent_window, str(err_mesg))
@@ -164,6 +174,20 @@ class GlobalActions:
 
     def edit_survey_callback(self):
         EditSurveysDialog.display(self.parent_window)
+
+    def _check_if_save_required(self):
+        settings = QSettings()
+        if settings.value('SaveFile/is_changed', False) is True:
+            response = QMessageBox.question(self.parent_window, 'Save current changes?',
+                                            'You have a file with pending changes. \n Do you want to save changes?',
+                                            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if response == QMessageBox.Yes:
+                self.save_callback()
+
+    def _update_window_title(self, file_name: str, max_length: int = 150):
+        if len(file_name) > max_length:
+            file_name = f'...{file_name[len(file_name) - (max_length-3)::]}'
+        self.parent_window.setWindowTitle(f'{MAIN_WINDOW_TITLE} - {file_name}')
 
 
 class TreeActions:
@@ -262,7 +286,35 @@ class TreeActions:
         dialog.show()
 
     def edit_station(self):
-        pass
+        action = QAction('edit station', self.context_menu)
+        action.triggered.connect(lambda: self.edit_station_callback())
+        return action
+
+    def edit_station_callback(self):
+        index = self.tree_view.selectedIndexes()[0]
+        form = EditStationDialog(self.tree_view, index.model().itemFromIndex(index))
+        form.show()
 
     def remove_station(self):
-        pass
+        action = QAction('delete station', self.context_menu)
+        action.triggered.connect(lambda: self.remove_station_callback())
+        return action
+
+    def remove_station_callback(self):
+        msg = QMessageBox()
+        self.remove_alert = msg
+        msg.setIcon(QMessageBox.Warning)
+
+        msg.setText("Are you sure?")
+        msg.setInformativeText("Deleting this Station requires you too verify surrounding stations.")
+        msg.setWindowTitle("Delete Station")
+        #msg.setDetailedText("The details are as follows:")
+        msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        if msg.exec_() == QMessageBox.Ok:
+            index = self.tree_view.selectedIndexes()[0]
+            item = index.model().itemFromIndex(index)
+            num_rows = item.model().delete_station(item)
+            self.tree_view.parent().parent().statusBar().showMessage(f'Removed station, deleted {num_rows} rows from database.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+
+        self.remove_alert.close()
+

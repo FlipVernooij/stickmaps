@@ -1,10 +1,11 @@
+from PySide6.QtCore import QSettings, QSize, QPoint
 from PySide6.QtGui import QIcon, Qt, QCloseEvent
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
     QAbstractItemView, QMenu
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
     MAIN_WINDOW_ICON
-from Gui.Actions import TreeActions
+from Gui.Actions import TreeActions, GlobalActions
 from Gui.Menus import MainMenu
 from Models.ItemModels import SurveyCollection
 from Models.TableModels import QueryMixin
@@ -14,6 +15,7 @@ class MainApplicationWindow(QMainWindow):
 
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
+
         self.tree_view = None
         self.central_widget = QWidget(self)
         self.setWindowTitle(MAIN_WINDOW_TITLE)
@@ -21,13 +23,17 @@ class MainApplicationWindow(QMainWindow):
         self.init_database()
         self.setup_interface()
         self.statusBar().showMessage('Loading ...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
-
-        self.showMaximized()
+        self.read_settings()
+        self.show()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         event.accept()
         response = QMessageBox.question(self, 'Quit application', 'Are you sure you want to quit?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if response == QMessageBox.Yes:
+            self.write_settings()
+            actions = GlobalActions(self)
+            actions._check_if_save_required()
+            QueryMixin.close_db()
             event.accept()
         else:
             event.ignore()
@@ -47,6 +53,22 @@ class MainApplicationWindow(QMainWindow):
     def init_database(self):
         QueryMixin.init_db()
         QueryMixin.create_tables()
+
+    def write_settings(self):
+        self.settings = QSettings()
+        self.settings.beginGroup("MainWindow")
+        self.settings.setValue("size", self.size())
+        self.settings.setValue("pos", self.pos())
+        self.settings.endGroup()
+
+    def read_settings(self):
+        self.settings = QSettings()
+        self.settings.beginGroup("MainWindow")
+        self.resize(self.settings.value("size", QSize(400, 400)))
+        self.move(self.settings.value("pos", QPoint(200, 200)))
+        self.settings.endGroup()
+
+        self.settings.setValue('SaveFile/is_changed', False)
 
 
 class SurveyOverview(QTreeView):
@@ -88,7 +110,8 @@ class SurveyOverview(QTreeView):
             menu.addAction(actions.edit_section())
             menu.addAction(actions.edit_stations())
             menu.addAction(actions.remove_section())
-        elif item.item_type == model.ITEM_TYPE_SECTION:
+        elif item.item_type == model.ITEM_TYPE_STATION:
             menu.addAction(actions.edit_station())
+            menu.addAction(actions.remove_station())
 
         menu.popup(self.mapToGlobal(pos))

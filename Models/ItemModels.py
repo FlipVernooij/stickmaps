@@ -7,7 +7,7 @@ from .TableModels import Survey, Section, Station
 
 class SurveyCollection(QStandardItemModel):
 
-    ITEM_TYPE_POINT = 1
+    ITEM_TYPE_STATION = 1
     ITEM_TYPE_SECTION = 2
     ITEM_TYPE_SURVEY = 4
 
@@ -37,7 +37,7 @@ class SurveyCollection(QStandardItemModel):
                     f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_row["section_id"]}')
                 for station_row in station_rows:
                     station = QStandardItem(station_icon,  station_row['station_name'])
-                    station.item_type = self.ITEM_TYPE_POINT
+                    station.item_type = self.ITEM_TYPE_STATION
                     station.survey_id = survey_row['survey_id']
                     station.section_id = section_row['section_id']
                     station.station_id = station_row['station_id']
@@ -127,4 +127,10 @@ class SurveyCollection(QStandardItemModel):
         Station.update_station(row, station_id)
         self.setData(index, row['station_name'])
         return
+
+    def delete_station(self, item: QStandardItem) -> int:
+        station_id = item.station_id
+        num_rows = Station.delete_station(station_id)
+        self.removeRows(item.row(), 1, item.parent().index())
+        return num_rows
 

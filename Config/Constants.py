@@ -20,6 +20,7 @@ DEVICE_NAME_MNEMO = "Mnemo"
 
 #SQL_DB_LOCATION = ":memory:"
 SQL_DB_LOCATION = "/tmp/stickmaps.sql"
+SQL_CONNECTION_NAME = "qt_sql_default_connection"
 SQL_TABLE_SURVEYS = "surveys"
 SQL_TABLE_SECTIONS = "sections"
 SQL_TABLE_STATIONS = "stations"
