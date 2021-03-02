@@ -5,7 +5,7 @@ import serial
 from serial.tools import list_ports
 
 from Config.Constants import DEVICE_NAME_MNEMO
-from Models.TableModels import Survey, Section, Point, QueryMixin
+from Models.TableModels import Survey, Section, Station, QueryMixin
 
 
 class MnemoImporter:
@@ -24,7 +24,7 @@ class MnemoImporter:
         self.import_list = None
         self.survey = None
         self.sections = []
-        self.points  = []
+        self.stations = []
 
     def get_device_location(self, device=None):
         if device is None:
@@ -109,9 +109,6 @@ class MnemoImporter:
             index = index + 6
             if index > len(self.import_list):
                 break
-
-        # https://stackoverflow.com/questions/53781144/pyside-qabstractitemmodel-connect-datachanged
-        # Survey.dataChanged.emit(survey_id, 0)
         return survey_id
 
     def get_section(self, start_from, survey_id):
@@ -128,11 +125,11 @@ class MnemoImporter:
             device_properties={"line_mode": mnemo_mode}
         )
         index = start_from + 3
-        point_reference_id = 1
+        station_reference_id = 1
         length_in = 0
         while True:
-            section_reference_id, length_in = self.get_point(index, point_reference_id, survey_id, section_id, length_in)
-            point_reference_id = point_reference_id + 1
+            section_reference_id, length_in = self.get_station(index, station_reference_id, survey_id, section_id, length_in)
+            station_reference_id = station_reference_id + 1
             index = index + self.LINE_BIT_COUNT
             if section_reference_id != mnemo_section_number:
                 index = index + 1
@@ -141,7 +138,7 @@ class MnemoImporter:
                 break
         return index
 
-    def get_point(self, index, point_reference_id, survey_id, section_id, length_in=0):
+    def get_station(self, index, station_reference_id, survey_id, section_id, length_in=0):
         imp = self.import_list
         section_reference_id = self.too_2byte_int(imp[index], imp[index + 1])
         index = index + 2
@@ -155,18 +152,18 @@ class MnemoImporter:
         index = index + 2
         temperature = self.too_2byte_int(imp[index], imp[index + 1])
 
-        Point.insert_point(
+        Station.insert_station(
             survey_id=survey_id,
             section_id=section_id,
             section_reference_id=section_reference_id,
-            point_reference_id=point_reference_id,
+            station_reference_id=station_reference_id,
             length_in=length_in,
             length_out=length_out,
             azimuth_in=azimuth_in,
             azimuth_out=azimuth_out,
             depth=depth,
-            point_properties={'temperature': temperature},
-            point_name=f"Point {point_reference_id}"
+            station_properties={'temperature': temperature},
+            station_name=f"Station {station_reference_id}"
         )
         return section_reference_id, length_out
 

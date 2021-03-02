@@ -2,11 +2,13 @@ import codecs
 import mimetypes
 import zlib
 
-from Config.Constants import APPLICATION_VERSION
+from PySide6.QtWidgets import QMessageBox
+
+from Config.Constants import APPLICATION_VERSION, APPLICATION_NAME
 from Models.TableModels import QueryMixin
 import json
 
-class Save():
+class SurveyData():
 
     def __init__(self, file_path):
         self.file_path = file_path
@@ -19,11 +21,28 @@ class Save():
         data = self._encode(save)
         self._write(data)
 
-    def open_from_file(self) -> str:
-        types = mimetypes.MimeTypes().guess_type(self.file_path)
+    def load_from_file(self) -> bool:
+        data = self._open_file()
+        if data['version'] != APPLICATION_VERSION:
+            QMessageBox.warning(None, APPLICATION_NAME, """
+            You are attempting to load a file with a newer version number then this application.\n
+            In order to load this file successfully, please update this application to its newest version.
+            """)
+            return
+        return self._load_to_db(data['database'])
+
+
+    def _open_file(self) -> dict:
         data = self._read()
         data = self._decode(data)
         return data
+
+    def _load_to_db(self, table_data) -> bool:
+
+        QueryMixin.drop_tables()
+        QueryMixin.create_tables()
+        QueryMixin.load_table_data(table_data)
+        return True
 
     def _write(self, data) -> bool:
         with open(self.file_path, 'wb') as fp:
@@ -34,10 +53,10 @@ class Save():
             data = fp.read()
         return data
 
-    def _decode(self, data) -> bytes:
-        uncompressed = zlib.decompress(data[::-1])
+    def _decode(self, data) -> dict:
+        uncompressed = zlib.decompress(data)
         return json.loads(uncompressed)
 
     def _encode(self, data: dict) -> bytes:
         json_str = json.dumps(data)
-        return zlib.compress(bytes(json_str, 'utf8'))[::-1]
+        return zlib.compress(bytes(json_str, 'utf8'))

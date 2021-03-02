@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, Q
     QLineEdit, QDateTimeEdit, QTextEdit, QDialogButtonBox, QVBoxLayout
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME
-from Models.TableModels import Section, Survey, Point
+from Models.TableModels import Section, Survey, Station
 
 
 class ErrorDialog:
@@ -106,7 +106,7 @@ class EditSurveyDialog(QDialog):
 
     def __init__(self, parent, item):
         super().__init__(parent)
-        self.survey = Survey.get_survey(item.section_id)
+        self.survey = Survey.get_survey(item.survey_id)
 
         layout = QFormLayout()
         layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
@@ -276,22 +276,22 @@ class EditSectionDialog(QDialog):
         self.close()
 
 
-class EditPointsDialog(QDialog):
+class EditStationsDialog(QDialog):
 
     def __init__(self, parent, item):
         super().__init__(parent.main_window)
         self.tree_view = parent
         self.section_id = item.section_id
         self.item = item
-        self.setWindowTitle('Edit points')
+        self.setWindowTitle('Edit stations')
         self.resize(800, 400)
-        model = Point()
+        model = Station()
         model.setEditStrategy(QSqlTableModel.OnManualSubmit)
         model.setFilter(f'section_id={self.section_id}')
 
         model.setHeaderData(0, Qt.Horizontal, "Survey id")
         model.setHeaderData(1, Qt.Horizontal, "Section id")
-        model.setHeaderData(2, Qt.Horizontal, "Point id")
+        model.setHeaderData(2, Qt.Horizontal, "Station id")
         model.setHeaderData(3, Qt.Horizontal, "Device reference id")
         model.setHeaderData(4, Qt.Horizontal, "Device section reference id")
         model.setHeaderData(5, Qt.Horizontal, "Depth")
@@ -300,8 +300,8 @@ class EditPointsDialog(QDialog):
         model.setHeaderData(8, Qt.Horizontal, "Azimuth out")
         model.setHeaderData(9, Qt.Horizontal, "Length in")
         model.setHeaderData(10, Qt.Horizontal, "Length out")
-        model.setHeaderData(11, Qt.Horizontal, "Point name")
-        model.setHeaderData(12, Qt.Horizontal, "Point Comment")
+        model.setHeaderData(11, Qt.Horizontal, "Station name")
+        model.setHeaderData(12, Qt.Horizontal, "Station Comment")
 
         view = QTableView(self)
         view.setSelectionMode(QTableView.NoSelection)
@@ -334,7 +334,7 @@ class EditPointsDialog(QDialog):
         table = self.table_view
         model = table.model()
         model.submitAll()
-        self.tree_view.model().reload_points(self.item)
+        self.tree_view.model().reload_stations(self.item)
         self.close()
 
     def reset(self):

@@ -1,9 +1,9 @@
 from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PySide6.QtWidgets import QMessageBox
 
-from Config.Constants import TREE_ICON_SURVEY, TREE_ICON_SECTION, TREE_ICON_POINT, SQL_TABLE_SURVEYS, \
-    SQL_TABLE_SECTIONS, SQL_TABLE_POINTS
-from .TableModels import Survey, Section, Point
+from Config.Constants import TREE_ICON_SURVEY, TREE_ICON_SECTION, TREE_ICON_STATION, SQL_TABLE_SURVEYS, \
+    SQL_TABLE_SECTIONS, SQL_TABLE_STATIONS
+from .TableModels import Survey, Section, Station
 
 class SurveyCollection(QStandardItemModel):
 
@@ -13,16 +13,12 @@ class SurveyCollection(QStandardItemModel):
 
     def __init__(self):
         super(SurveyCollection, self).__init__()
-
-        #Survey.connect(Survey(), Survey.dataChanged, lambda: self.redraw_survey())
-        #Section.connect(Section(), Section.dataChanged, lambda: self.redraw_section())
-
         self.load_model()
 
     def load_model(self, survey_id: int = None):
         survey_icon = QIcon(TREE_ICON_SURVEY)
         section_icon = QIcon(TREE_ICON_SECTION)
-        point_icon = QIcon(TREE_ICON_POINT)
+        station_icon = QIcon(TREE_ICON_STATION)
         if survey_id is None:
             survey_rows = Survey.fetch(f'SELECT survey_id, survey_name, device_name FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id DESC', [])
         else:
@@ -37,20 +33,25 @@ class SurveyCollection(QStandardItemModel):
                 section.survey_id = survey_row['survey_id']
                 section.section_id = section_row['section_id']
                 section.item_type = self.ITEM_TYPE_SECTION
-                point_rows = Point.fetch(
-                    f'SELECT point_id, point_name FROM {SQL_TABLE_POINTS} WHERE section_id={section_row["section_id"]}')
-                for point_row in point_rows:
-                    point = QStandardItem(point_icon,  point_row['point_name'])
-                    point.item_type = self.ITEM_TYPE_POINT
-                    point.survey_id = survey_row['survey_id']
-                    point.section_id = section_row['section_id']
-                    point.point_id = point_row['point_id']
-                    section.appendRow(point)
+                station_rows = Station.fetch(
+                    f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_row["section_id"]}')
+                for station_row in station_rows:
+                    station = QStandardItem(station_icon,  station_row['station_name'])
+                    station.item_type = self.ITEM_TYPE_POINT
+                    station.survey_id = survey_row['survey_id']
+                    station.section_id = section_row['section_id']
+                    station.station_id = station_row['station_id']
+                    section.appendRow(station)
                 survey.appendRow(section)
             if survey_id is None:
                 self.appendRow(survey)
             else:
                 self.insertRow(0, survey)
+
+    def reload_model(self):
+        self.removeRows(0, self.rowCount())
+        self.load_model()
+
 
     def append_survey_from_db(self, survey_id):
         self.load_model(survey_id)
@@ -104,28 +105,26 @@ class SurveyCollection(QStandardItemModel):
         self.removeRows(item.row(), 1, item.parent().index())
         return num_rows
 
-    def reload_points(self, section_item: QStandardItem) -> int:
+    def reload_stations(self, section_item: QStandardItem) -> int:
         section_id = section_item.section_id
         item = section_item
         count = item.rowCount()
 
-        point_rows = Point.fetch(f'SELECT point_id, point_name FROM {SQL_TABLE_POINTS} WHERE section_id={section_id}')
+        station_rows = Station.fetch(f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_id}')
 
         for i in range(count):
-            point_item = item.child(i)
-            if point_rows[i]['point_id'] == point_item.point_id:
-                self.setData(point_item.index(), point_rows[i]['point_name'])
+            station_item = item.child(i)
+            if station_rows[i]['station_id'] == station_item.station_id:
+                self.setData(station_item.index(), station_rows[i]['station_name'])
             else:
-                QMessageBox.warning('Error', f"Mmm point mismatch {point_rows[i]['point_id']} != {point_item.point_id}")
+                QMessageBox.warning('Error', f"Mmm station mismatch {station_rows[i]['station_id']} != {station_item.station_id}")
                 break
 
-    def update_point(self, data: dict, index):
+    def update_station(self, data: dict, index):
         row = data.copy()
-        point_id = row['section_id']
-        del row['point_id']
-        Point.update_point(row,  point_id)
-        ## We need to call setData() on self and not on the item.
-        ## the DataChanged doesn't bubble up as you would expect.
-        self.setData(index, row['point_name'])
+        station_id = row['section_id']
+        del row['station_id']
+        Station.update_station(row, station_id)
+        self.setData(index, row['station_name'])
         return
 

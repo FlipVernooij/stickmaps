@@ -86,9 +86,9 @@ class SurveyOverview(QTreeView):
             menu.addAction(actions.remove_survey())
         elif item.item_type == model.ITEM_TYPE_SECTION:
             menu.addAction(actions.edit_section())
-            menu.addAction(actions.edit_points())
+            menu.addAction(actions.edit_stations())
             menu.addAction(actions.remove_section())
         elif item.item_type == model.ITEM_TYPE_SECTION:
-            menu.addAction(actions.edit_point())
+            menu.addAction(actions.edit_station())
 
         menu.popup(self.mapToGlobal(pos))

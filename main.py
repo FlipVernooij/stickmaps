@@ -1,7 +1,9 @@
 import sys
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QSettings
 
+from Config.Constants import ORGANISATION_NAME, ORGANISATION_DOMAIN, APPLICATION_NAME
 from Gui.Dialogs import ErrorDialog
 
 if __name__ == '__main__':

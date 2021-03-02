@@ -8,14 +8,16 @@ from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialo
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, APPLICATION_FILE_EXTENSION
 from Config.KeyboardShortcuts import KEY_IMPORT_MNEMO_CONNECT, KEY_IMPORT_MNEMO_DUMP_FILE, KEY_QUIT_APPLICATION, \
     KEY_SAVE, KEY_SAVE_AS, KEY_OPEN
-from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditSectionsDialog, EditSectionDialog, EditPointsDialog
+from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditSectionsDialog, EditSectionDialog, EditStationsDialog
 from Gui.Dialogs import EditSurveysDialog
 from Importers.Mnemo import MnemoImporter
 from Models.ItemModels import SurveyCollection
-from Utils.Storage import Save
+from Utils.Storage import SurveyData
 
 
 class GlobalActions:
+
+    current_file_name = None;
 
     def __init__(self, parent_window):
         self.parent_window = parent_window
@@ -23,8 +25,16 @@ class GlobalActions:
     def exit_application(self):
         action = QAction('Exit', self.parent_window)
         action.setShortcut(KEY_QUIT_APPLICATION)
-        action.triggered.connect(self.parent_window.close)
+
+        action.triggered.connect(lambda: self.exit_application_callback())
         return action
+
+    def exit_application_callback(self):
+        # @todo I need to free up the memory by removing the Sqlite database.
+       # if self.parent_window.tree_view.model().rowCount() > 0:
+            # need to check or the file is saved or not...
+
+        self.parent_window.close
 
     def save(self):
         action = QAction('Save', self.parent_window)
@@ -33,7 +43,14 @@ class GlobalActions:
         return action
 
     def save_callback(self):
-        pass
+        if self.current_file_name is not None:
+            file_name = self.current_file_name
+            save = SurveyData(file_name)
+            save.save_to_file()
+            self.current_file_name = file_name
+            self.parent_window.statusBar().showMessage('File saved.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+        else:
+            self.save_as_callback()
 
     def save_as(self):
         action = QAction('Save as', self.parent_window)
@@ -42,6 +59,7 @@ class GlobalActions:
         return action
 
     def save_as_callback(self):
+        self.parent_window.statusBar().showMessage('Saving file, do not exit.')
         file_regex = f'(*.{APPLICATION_FILE_EXTENSION})'
         file_ident = f'{APPLICATION_NAME} {file_regex}'
         dialog = QFileDialog()
@@ -56,8 +74,12 @@ class GlobalActions:
             file_name = dialog.selectedFiles()[0]
             if file_name[-4:] != f'.{APPLICATION_FILE_EXTENSION}':
                 file_name = f'{file_name}.{APPLICATION_FILE_EXTENSION}'
-            save = Save(file_name)
+            save = SurveyData(file_name)
             save.save_to_file()
+            self.current_file_name = file_name
+            self.parent_window.statusBar().showMessage('File saved.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+        else:
+            self.parent_window.statusBar().showMessage('File NOT saved.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
     def open(self):
         action = QAction('Open', self.parent_window)
@@ -78,15 +100,14 @@ class GlobalActions:
                 options=QFileDialog.Options() | QFileDialog.DontUseNativeDialog
             )
 
-
             if not name[0]:
                 return
 
             name = name[0]
-            save = Save(name)
-            data = save.open_from_file()
-            ## Alright, I need to load the data into the application here.
-            foo = 1
+            save = SurveyData(name)
+            save.load_from_file()
+            self.parent_window.tree_view.model().reload_model()
+
         except Exception as err_mesg:
             ErrorDialog.show_error_key(self.parent_window, str(err_mesg))
 
@@ -217,7 +238,7 @@ class TreeActions:
         msg.setIcon(QMessageBox.Warning)
 
         msg.setText("Are you sure?")
-        msg.setInformativeText("Deleting this Section will delete all containing point too.")
+        msg.setInformativeText("Deleting this Section will delete all containing station too.")
         msg.setWindowTitle("Delete Section")
         #msg.setDetailedText("The details are as follows:")
         msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
@@ -229,19 +250,19 @@ class TreeActions:
 
         self.remove_alert.close()
 
-    def edit_points(self):
-        action = QAction('edit points', self.context_menu)
-        action.triggered.connect(lambda: self.edit_points_callback())
+    def edit_stations(self):
+        action = QAction('edit stations', self.context_menu)
+        action.triggered.connect(lambda: self.edit_stations_callback())
         return action
 
-    def edit_points_callback(self):
+    def edit_stations_callback(self):
         index = self.tree_view.selectedIndexes()[0]
         item = index.model().itemFromIndex(index)
-        dialog = EditPointsDialog(self.tree_view, item)
+        dialog = EditStationsDialog(self.tree_view, item)
         dialog.show()
 
-    def edit_point(self):
+    def edit_station(self):
         pass
 
-    def remove_point(self):
+    def remove_station(self):
         pass
