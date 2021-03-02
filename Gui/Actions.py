@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialo
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, APPLICATION_FILE_EXTENSION, \
     MAIN_WINDOW_TITLE
 from Config.KeyboardShortcuts import KEY_IMPORT_MNEMO_CONNECT, KEY_IMPORT_MNEMO_DUMP_FILE, KEY_QUIT_APPLICATION, \
-    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN
+    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW
 from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditSectionsDialog, EditSectionDialog, EditStationsDialog, \
     EditStationDialog
 from Gui.Dialogs import EditSurveysDialog
@@ -114,12 +114,30 @@ class GlobalActions:
             self.parent_window.tree_view.model().reload_model()
             self._update_window_title(name)
 
-            settings = QSettings()
             settings.setValue('SaveFile/is_changed', False)
             settings.setValue('SaveFile/last_path', os.path.dirname(name))
             settings.setValue('SaveFile/current_file_name', name)
         except Exception as err_mesg:
             ErrorDialog.show_error_key(self.parent_window, str(err_mesg))
+
+    def new(self):
+        action = QAction('New', self.parent_window)
+        action.setShortcut(KEY_NEW)
+        action.triggered.connect(lambda: self.new_callback())
+        return action
+
+    def new_callback(self):
+        self._check_if_save_required()
+        save = SurveyData('')
+        save.load_new()
+        self.parent_window.tree_view.model().reload_model()
+        self._update_window_title('*new')
+
+        settings = QSettings()
+        settings.setValue('SaveFile/is_changed', False)
+        settings.setValue('SaveFile/current_file_name', None)
+
+
 
     def mnemo_connect_to(self):
         action = QAction('Connect to Mnemo', self.parent_window)

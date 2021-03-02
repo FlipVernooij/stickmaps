@@ -16,9 +16,10 @@ class MainMenu:
         mb = self.parent_window.menuBar()
         fm = mb.addMenu('File')
 
+        fm.addAction(actions.new())
+        fm.addAction(actions.open())
         fm.addAction(actions.save())
         fm.addAction(actions.save_as())
-        fm.addAction(actions.open())
         fm.addAction(actions.exit_application())
 
     def set_edit_menu(self):

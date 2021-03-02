@@ -31,6 +31,11 @@ class SurveyData():
             return
         return self._load_to_db(data['database'])
 
+    def load_new(self) -> bool:
+        QueryMixin.drop_tables()
+        QueryMixin.create_tables()
+        return True
+
     def _open_file(self) -> dict:
         data = self._read()
         data = self._decode(data)

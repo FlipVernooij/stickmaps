@@ -359,8 +359,6 @@ class Station(QSqlTableModel, QueryMixin):
 
     @classmethod
     def create_database_tables(cls):
-        # reference_id is the "id" as provider by the Mnemo.
-        # so it is a local reference id only unique to the section itself.
         query = f"""
             CREATE TABLE IF NOT EXISTS {SQL_TABLE_STATIONS} (
                 station_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -368,16 +366,19 @@ class Station(QSqlTableModel, QueryMixin):
                 survey_id INTEGER,
                 station_reference_id INTEGER,
                 section_reference_id INTEGER,
+                station_name TEXT,
+                length_in REAL,
+                azimuth_in REAL,
                 depth REAL,
                 temperature REAL,
-                azimuth_in REAL,
                 azimuth_out REAL,
-                length_in REAL,
+                azimuth_out_avg REAL,
                 length_out REAL,
-                station_name TEXT,
                 station_comment TEXT
             )
         """
+        # reference_id is the "id" as provider by the Mnemo.
+        # so it is a local reference id only unique to the section itself.
         cls.exec(query)
 
     @classmethod
@@ -397,6 +398,7 @@ class Station(QSqlTableModel, QueryMixin):
                        length_out: float,
                        azimuth_in: float,
                        azimuth_out: float,
+                       azimuth_out_avg: float,
                        depth: float,
                        station_properties: dict = {},
                        station_name: str = ''
@@ -415,6 +417,7 @@ class Station(QSqlTableModel, QueryMixin):
         record.setValue('length_out', length_out)
         record.setValue('azimuth_in', azimuth_in)
         record.setValue('azimuth_out', azimuth_out)
+        record.setValue('azimuth_out_avg', azimuth_out_avg)
         record.setValue('depth', depth)
         record.setValue('station_properties', json.dumps(station_properties))
         record.setValue('station_name', station_name)

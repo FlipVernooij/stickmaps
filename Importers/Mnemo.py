@@ -127,8 +127,9 @@ class MnemoImporter:
         index = start_from + 3
         station_reference_id = 1
         length_in = 0
+        azimuth_in = 0
         while True:
-            section_reference_id, length_in = self.get_station(index, station_reference_id, survey_id, section_id, length_in)
+            section_reference_id, length_in, azimuth_in = self.get_station(index, station_reference_id, survey_id, section_id, length_in, azimuth_in)
             station_reference_id = station_reference_id + 1
             index = index + self.LINE_BIT_COUNT
             if section_reference_id != mnemo_section_number:
@@ -138,20 +139,24 @@ class MnemoImporter:
                 break
         return index
 
-    def get_station(self, index, station_reference_id, survey_id, section_id, length_in=0):
+    def get_station(self, index: int, station_reference_id: int, survey_id: int, section_id: int,
+                    length_in: float = 0.0, azimuth_in: float = 0.0):
         imp = self.import_list
         section_reference_id = self.too_2byte_int(imp[index], imp[index + 1])
         index = index + 2
-        azimuth_in = self.too_2byte_int(imp[index], imp[index + 1]) / 10
-        index = index + 2
         azimuth_out = self.too_2byte_int(imp[index], imp[index + 1]) / 10
+        index = index + 2
+        azimuth_in_new = self.too_2byte_int(imp[index], imp[index + 1]) / 10
         index = index + 2
         length_out = self.too_2byte_int(imp[index], imp[index + 1]) / 100
         index = index + 2
-        depth = self.too_2byte_int(imp[index], imp[index + 1])
+        depth = self.too_2byte_int(imp[index], imp[index + 1]) / 100
         index = index + 2
         temperature = self.too_2byte_int(imp[index], imp[index + 1])
 
+        n = 11
+
+        avg_az_out = (azimuth_out + azimuth_in_new) / 2
         Station.insert_station(
             survey_id=survey_id,
             section_id=section_id,
@@ -161,16 +166,20 @@ class MnemoImporter:
             length_out=length_out,
             azimuth_in=azimuth_in,
             azimuth_out=azimuth_out,
+            azimuth_out_avg=avg_az_out,
             depth=depth,
             station_properties={'temperature': temperature},
             station_name=f"Station {station_reference_id}"
         )
-        return section_reference_id, length_out
+        return section_reference_id, length_out, azimuth_in_new
 
     def too_2byte_int(self, byte_1: int, byte_2: int):
         hex_1 = self.twos_complement(byte_1)
         hex_2 = self.twos_complement(byte_2)
-        hex_str = '0x{}{}'.format(hex_1, hex_2)
+        pad = ''
+        if len(hex_2) < 2:
+            pad = '0'
+        hex_str = '0x{}{}{}'.format(hex_1, pad, hex_2)
         response = int(hex_str, 16)
         return response
 
