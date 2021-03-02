@@ -1,10 +1,9 @@
 import sys
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QSettings, QCoreApplication
+from PySide6.QtCore import QCoreApplication
 
 from Config.Constants import ORGANISATION_NAME, ORGANISATION_DOMAIN, APPLICATION_NAME
-from Gui.Dialogs import ErrorDialog
 
 if __name__ == '__main__':
     # parent_app = QtWidgets.QApplication()
@@ -19,7 +18,7 @@ if __name__ == '__main__':
         QCoreApplication.setOrganizationDomain(ORGANISATION_DOMAIN)
         QCoreApplication.setApplicationName(APPLICATION_NAME)
 
-        parent_app = QApplication(sys.argv)  ## get as singleton QApplication.instance()
+        parent_app = QApplication(sys.argv)
         app = MainApplicationWindow()
 
 

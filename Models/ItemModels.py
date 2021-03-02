@@ -1,8 +1,9 @@
 from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMessageBox, QApplication
 
-from Config.Constants import TREE_ICON_SURVEY, TREE_ICON_SECTION, TREE_ICON_STATION, SQL_TABLE_SURVEYS, \
-    SQL_TABLE_SECTIONS, SQL_TABLE_STATIONS
+from Config.Constants import SQL_TABLE_SURVEYS, SQL_TABLE_SECTIONS, SQL_TABLE_STATIONS, TREE_DARK_ICON_SURVEY,\
+    TREE_DARK_ICON_SECTION, TREE_DARK_ICON_STATION, TREE_LIGHT_ICON_SURVEY, TREE_LIGHT_ICON_SECTION, \
+    TREE_LIGHT_ICON_STATION
 from .TableModels import Survey, Section, Station
 
 class SurveyCollection(QStandardItemModel):
@@ -16,9 +17,17 @@ class SurveyCollection(QStandardItemModel):
         self.load_model()
 
     def load_model(self, survey_id: int = None):
-        survey_icon = QIcon(TREE_ICON_SURVEY)
-        section_icon = QIcon(TREE_ICON_SECTION)
-        station_icon = QIcon(TREE_ICON_STATION)
+        if QApplication.instance().palette().text().color().name() == '#ffff':
+            # probably dark theme
+            survey_icon = QIcon(TREE_DARK_ICON_SURVEY)
+            section_icon = QIcon(TREE_DARK_ICON_SECTION)
+            station_icon = QIcon(TREE_DARK_ICON_STATION)
+        else:
+            # probably light theme
+            survey_icon = QIcon(TREE_LIGHT_ICON_SURVEY)
+            section_icon = QIcon(TREE_LIGHT_ICON_SECTION)
+            station_icon = QIcon(TREE_LIGHT_ICON_STATION)
+
         if survey_id is None:
             survey_rows = Survey.fetch(f'SELECT survey_id, survey_name, device_name FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id DESC', [])
         else:

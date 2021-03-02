@@ -12,9 +12,13 @@ MAIN_WINDOW_STATUSBAR_TIMEOUT = 3000
 TREE_START_WIDTH = 300
 TREE_MIN_WIDTH = 100
 
-TREE_ICON_SURVEY = 'Assets/surveyIcon.png'
-TREE_ICON_SECTION = 'Assets/sectionIcon.png'
-TREE_ICON_STATION = 'Assets/pointIcon.png'
+TREE_LIGHT_ICON_SURVEY = 'Assets/surveyIcon.png'
+TREE_LIGHT_ICON_SECTION = 'Assets/sectionIcon.png'
+TREE_LIGHT_ICON_STATION = 'Assets/pointIcon.png'
+
+TREE_DARK_ICON_SURVEY = 'Assets/surveyIcon.png'
+TREE_DARK_ICON_SECTION = 'Assets/sectionIcon.png'
+TREE_DARK_ICON_STATION = 'Assets/pointIcon.png'
 
 DEVICE_NAME_MNEMO = "Mnemo"
 
