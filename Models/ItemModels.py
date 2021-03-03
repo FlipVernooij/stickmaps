@@ -6,6 +6,22 @@ from Config.Constants import SQL_TABLE_SURVEYS, SQL_TABLE_SECTIONS, SQL_TABLE_ST
     TREE_LIGHT_ICON_STATION
 from .TableModels import Survey, Section, Station
 
+
+class SectionItem(QStandardItem):
+
+    def __init__(self, icon, row):
+        super().__init__(icon, row)
+        self.setDragEnabled(True)
+        self.item_type = SurveyCollection.ITEM_TYPE_SECTION
+
+
+    def event(self, event):
+        foo = 1
+
+
+
+
+
 class SurveyCollection(QStandardItemModel):
 
     ITEM_TYPE_STATION = 1
@@ -34,18 +50,21 @@ class SurveyCollection(QStandardItemModel):
             survey_rows = [Survey.get_survey(survey_id)]
         for survey_row in survey_rows:
             survey = QStandardItem(survey_icon, survey_row['survey_name'])
+            survey.setDragEnabled(False)
             survey.survey_id = survey_row['survey_id']
             survey.item_type = self.ITEM_TYPE_SURVEY
             section_rows = Section.fetch(f'SELECT section_id, section_name FROM {SQL_TABLE_SECTIONS} WHERE survey_id={survey_row["survey_id"]}')
             for section_row in section_rows:
-                section = QStandardItem(section_icon, section_row['section_name'])
+                section = SectionItem(section_icon, section_row['section_name'])
+
                 section.survey_id = survey_row['survey_id']
                 section.section_id = section_row['section_id']
-                section.item_type = self.ITEM_TYPE_SECTION
+
                 station_rows = Station.fetch(
                     f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_row["section_id"]}')
                 for station_row in station_rows:
                     station = QStandardItem(station_icon,  station_row['station_name'])
+                    station.setDragEnabled(False)
                     station.item_type = self.ITEM_TYPE_STATION
                     station.survey_id = survey_row['survey_id']
                     station.section_id = section_row['section_id']

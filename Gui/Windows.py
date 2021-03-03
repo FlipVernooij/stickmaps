@@ -1,7 +1,7 @@
 from PySide6.QtCore import QSettings, QSize, QPoint
-from PySide6.QtGui import QIcon, Qt, QCloseEvent
+from PySide6.QtGui import QIcon, Qt, QCloseEvent, QPalette
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
-    QAbstractItemView, QMenu
+    QAbstractItemView, QMenu, QScrollArea
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
     MAIN_WINDOW_ICON
@@ -17,7 +17,7 @@ class MainApplicationWindow(QMainWindow):
         super(MainApplicationWindow, self).__init__()
 
         self.tree_view = None
-        self.central_widget = QWidget(self)
+        self.central_widget = MapView(self)
         self.setWindowTitle(MAIN_WINDOW_TITLE)
         self.setWindowIcon(QIcon(MAIN_WINDOW_ICON))
         self.init_database()
@@ -88,6 +88,11 @@ class SurveyOverview(QTreeView):
         model = SurveyCollection()
         self.setModel(model)
 
+        self.setDragEnabled(True)
+        self.setDropIndicatorShown(True)
+        self.setDefaultDropAction(Qt.CopyAction)
+
+
         self.setMinimumWidth(TREE_START_WIDTH)
         self.setMinimumWidth(TREE_MIN_WIDTH)
 
@@ -115,3 +120,37 @@ class SurveyOverview(QTreeView):
             menu.addAction(actions.remove_station())
 
         menu.popup(self.mapToGlobal(pos))
+
+
+class MapView(QWidget):
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        pallete = QPalette()
+        pallete.setColor(QPalette.Window, Qt.white)
+        self.setAutoFillBackground(True)
+        self.setPalette(pallete)
+        self.setAcceptDrops(True)
+
+
+        self.show()
+
+    def dragEnterEvent(self, event) -> None:
+        event.accept()
+
+    def dragLeaveEvent(self, event) -> None:
+       event.accept()
+
+    def dragMoveEvent(self, event) -> None:
+        event.accept()
+
+    def dropEvent(self, event):
+        super().dropEvent(event)
+        item = event.acceptProposedAction()
+
+        foo = 1
+        return True
+
+    @classmethod
+    def dropAction(cls, item):
+        foo = 1
