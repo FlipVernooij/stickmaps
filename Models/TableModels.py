@@ -452,6 +452,10 @@ class Station(QSqlTableModel, QueryMixin):
     def get_station(cls, station_id) -> dict:
         return cls.get(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
 
+    @classmethod
+    def get_stations_for_section(cls, section_id: int) -> list:
+        return cls.fetch(f'SELECT * FROM {SQL_TABLE_STATIONS} WHERE section_id=? ORDER BY station_id ASC', [section_id])
+
     def __init__(self):
         super().__init__()
         self.setTable(SQL_TABLE_STATIONS)

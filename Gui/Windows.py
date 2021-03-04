@@ -1,5 +1,5 @@
-from PySide6.QtCore import QSettings, QSize, QPoint
-from PySide6.QtGui import QIcon, Qt, QCloseEvent, QPalette
+from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData
+from PySide6.QtGui import QIcon, Qt, QCloseEvent, QPalette, QDrag
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
     QAbstractItemView, QMenu, QScrollArea
 
@@ -7,7 +7,7 @@ from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, T
     MAIN_WINDOW_ICON
 from Gui.Actions import TreeActions, GlobalActions
 from Gui.Menus import MainMenu
-from Models.ItemModels import SurveyCollection
+from Models.ItemModels import SurveyCollection, SectionItem
 from Models.TableModels import QueryMixin
 
 
@@ -88,11 +88,6 @@ class SurveyOverview(QTreeView):
         model = SurveyCollection()
         self.setModel(model)
 
-        self.setDragEnabled(True)
-        self.setDropIndicatorShown(True)
-        self.setDefaultDropAction(Qt.CopyAction)
-
-
         self.setMinimumWidth(TREE_START_WIDTH)
         self.setMinimumWidth(TREE_MIN_WIDTH)
 
@@ -121,6 +116,24 @@ class SurveyOverview(QTreeView):
 
         menu.popup(self.mapToGlobal(pos))
 
+    def mouseMoveEvent(self, event) -> None:
+        item = self.model().itemFromIndex(self.selectedIndexes()[0])
+        if not isinstance(item, SectionItem):
+            event.ignore()
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setProperty('survey_id', item.survey_id)
+        mime.setProperty('section_id', item.section_id)
+        mime.setProperty('section_name', item.text())
+        mime.setText(item.text())
+
+        drag.setPixmap()
+
+        drag.setMimeData(mime)
+        drag.exec_(Qt.CopyAction)
+        event.accept()
+
 
 class MapView(QWidget):
 
@@ -146,10 +159,12 @@ class MapView(QWidget):
 
     def dropEvent(self, event):
         super().dropEvent(event)
-        item = event.acceptProposedAction()
-
-        foo = 1
-        return True
+        mime = event.mimeData()
+        survey_id = mime.property('survey_id')
+        section_id = mime.property('section_id')
+        section_name = mime.property('section_name')
+        event.accept()
+        return
 
     @classmethod
     def dropAction(cls, item):

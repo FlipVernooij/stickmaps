@@ -1,4 +1,5 @@
-from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon
+from PySide6.QtCore import QMimeData
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon, QDrag
 from PySide6.QtWidgets import QMessageBox, QApplication
 
 from Config.Constants import SQL_TABLE_SURVEYS, SQL_TABLE_SECTIONS, SQL_TABLE_STATIONS, TREE_DARK_ICON_SURVEY,\
@@ -9,10 +10,15 @@ from .TableModels import Survey, Section, Station
 
 class SectionItem(QStandardItem):
 
-    def __init__(self, icon, row):
+    def __init__(self, icon, row, survey_id: int, section_id: int):
         super().__init__(icon, row)
-        self.setDragEnabled(True)
         self.item_type = SurveyCollection.ITEM_TYPE_SECTION
+        self.survey_id = survey_id
+        self.section_id = section_id
+        # self.drag = QDrag(self)
+        # self.mime_data = QMimeData()
+        # self.mime_data.setProperty("section_id", section_id)
+        # self.drag.setMimeData(self.mime_data)
 
 
     def event(self, event):
@@ -55,10 +61,7 @@ class SurveyCollection(QStandardItemModel):
             survey.item_type = self.ITEM_TYPE_SURVEY
             section_rows = Section.fetch(f'SELECT section_id, section_name FROM {SQL_TABLE_SECTIONS} WHERE survey_id={survey_row["survey_id"]}')
             for section_row in section_rows:
-                section = SectionItem(section_icon, section_row['section_name'])
-
-                section.survey_id = survey_row['survey_id']
-                section.section_id = section_row['section_id']
+                section = SectionItem(section_icon, section_row['section_name'],survey_row['survey_id'], section_row['section_id'])
 
                 station_rows = Station.fetch(
                     f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_row["section_id"]}')
