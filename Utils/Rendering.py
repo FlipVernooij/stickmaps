@@ -1,7 +1,7 @@
 import math
 
 from PySide6.QtCore import QPoint
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QPainter, QPen, QColor
 
 from Models.TableModels import Station
 
@@ -22,7 +22,6 @@ class CalcMixin:
         return QPoint(xpos=math.cos(azimuth) * length, ypos=math.sin(azimuth) * length)
 
 
-
 class DragImage(CalcMixin):
 
     def __init__(self, section_id: int, section_name: str):
@@ -31,21 +30,43 @@ class DragImage(CalcMixin):
         self.stations = Station.get_stations_for_section(section_id)
 
         lines = []
-        last_line = ['', QPoint(0, 0)]
-
+        x = 0
+        y = 0
         max_x = 0
         min_x = 0
-
-        max_y
-        min_y
+        max_y = 0
+        min_y = 0
         for station in self.stations:
+
 
             last_line = self.get_line(
                 station['azimuth_out_avg'],
                 station['length_out'],
-                last_line[1].x(),
-                last_line[1].y()
+                x,
+                y
             )
+            x = last_line[1].x()
+            y = last_line[1].y()
+            min_x = x if x < min_x else min_x
+            max_x = x if x > max_x else max_x
+            min_y = y if y < min_y else min_y
+            max_y = y if y > max_y else max_y
             lines.append(last_line)
 
-        self.pixmap = QPixmap()
+        self.pixmap = QPixmap(max_x + abs(min_x) + 20, max_y + abs(min_y) + 20)
+        self.painter = QPainter()
+        self.pen = QPen((QColor(69, 86, 96)), 1)
+        self.painter.begin(self.pixmap)
+        for line in lines:
+            s = line[0]
+            e = line[1]
+            s.setX(s.x()+abs(min_x)+10)
+            s.setY(s.y()+abs(min_y)+10)
+            e.setX(e.x()+abs(min_x)+10)
+            e.setY(e.y()+abs(min_y)+10)
+            self.painter.drawLine(s, e)
+
+        self.painter.end()
+
+    def get_pixmap(self):
+        return self.pixmap

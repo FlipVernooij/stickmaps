@@ -9,6 +9,7 @@ from Gui.Actions import TreeActions, GlobalActions
 from Gui.Menus import MainMenu
 from Models.ItemModels import SurveyCollection, SectionItem
 from Models.TableModels import QueryMixin
+from Utils.Rendering import DragImage
 
 
 class MainApplicationWindow(QMainWindow):
@@ -117,7 +118,11 @@ class SurveyOverview(QTreeView):
         menu.popup(self.mapToGlobal(pos))
 
     def mouseMoveEvent(self, event) -> None:
-        item = self.model().itemFromIndex(self.selectedIndexes()[0])
+        item = self.selectedIndexes()
+        if len(item) == 0:
+            return
+
+        item = self.model().itemFromIndex(item[0])
         if not isinstance(item, SectionItem):
             event.ignore()
             return
@@ -127,8 +132,10 @@ class SurveyOverview(QTreeView):
         mime.setProperty('section_id', item.section_id)
         mime.setProperty('section_name', item.text())
         mime.setText(item.text())
+        pixmap = DragImage(item.section_id, item.text())
+        drag.setPixmap(pixmap.get_pixmap())
 
-        drag.setPixmap()
+        self.main_window.central_widget.
 
         drag.setMimeData(mime)
         drag.exec_(Qt.CopyAction)
