@@ -83,7 +83,6 @@ class SurveyCollection(QStandardItemModel):
         self.removeRows(0, self.rowCount())
         self.load_model()
 
-
     def append_survey_from_db(self, survey_id):
         self.load_model(survey_id)
 

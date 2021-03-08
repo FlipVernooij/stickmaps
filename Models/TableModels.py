@@ -10,12 +10,14 @@ from Config.Constants import SQL_TABLE_STATIONS, SQL_TABLE_SECTIONS, SQL_TABLE_S
 
 class QueryMixin:
 
+
     @classmethod
-    def init_db(cls):
-        db = QSqlDatabase.addDatabase('QSQLITE', SQL_CONNECTION_NAME)
+    def init_db(cls, connection_name=SQL_CONNECTION_NAME):
+        db = QSqlDatabase.addDatabase('QSQLITE', connection_name)
         db.setDatabaseName(SQL_DB_LOCATION)
         if not db.open():
             raise ConnectionError("Database Error: {}".format(db.lastError()))
+        return db
 
     @classmethod
     def close_db(cls):
@@ -268,9 +270,6 @@ class Survey(QSqlTableModel, QueryMixin):
 
         self.setTable(SQL_TABLE_SURVEYS)
         self.setEditStrategy(self.OnManualSubmit)
-        #
-        # self.setRelation(1, QSqlRelation(SQL_TABLE_SURVEYORS, 'survey_id', 'name'))
-        # self.setRelation(1, QSqlRelation(SQL_TABLE_EXPLORERS, 'survey_id', 'name'))
 
 
 class Section(QSqlTableModel, QueryMixin):

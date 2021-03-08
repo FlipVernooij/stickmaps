@@ -33,11 +33,45 @@ class ErrorDialog:
                             <p>If this message re-appears, you most probably have NO DATA on your device.</p>
                         """,
             'status': "Failed reading Mnemo."
+        },
+        'SERIAL_ERROR': {
+            'title': "Could not connect to Mnemo",
+            'body': """
+                        <h3>There was an error setting up the serial connection</h3>
+                        <p>This is most likely due to the default permissions set to serial usb devices by udev</p>
+                        <dl>
+                            <dt>Quick fix:</dt>
+                            <dd><code> sudo chmod 0777 /dev/ttyACM*</code> </dd>
+                            <dt>Permanent fix:</dt>
+                            <dd>
+                                &nbsp;&nbsp;&nbsp;&nbsp;<code>sudoedit /etc/udev/rules.d/50-myusb.rules </code>
+                                <br />Change: <br/>
+                                &nbsp;&nbsp;&nbsp;&nbsp;<code> KERNEL=="ttyACM[0-9]*",MODE="0666"</code> 
+                                
+                            </dd>
+                        </dl>
+                    """
+        },
+        'NO_DATA_TO_BE_WRITTEN': {
+            'title': "No data to write",
+            'body': """
+                <h3>Mnemo has no data</h3>
+                <p>
+                    We connected successfully to the Mnemo, yet we didn't found any data.<br />
+                    If you are sure that there should be data on your device, follow the following steps:
+                </p>
+                <ol>
+                    <li>Wait for 20 seconds</li>
+                    <li>Turn OFF your Mnemo</li>
+                    <li>Turn ON your Mnemo</li>
+                    <li>Restart the sync in Stickmaps</li>
+                </ol>
+            """
         }
     }
 
     @classmethod
-    def show_error_key(cls, parent_window, error_key):
+    def show_error_key(cls, parent_window, error_key: str, error_exception: Exception = None):
 
         try:
             title = cls.errorMessages[error_key]['title']
@@ -45,7 +79,9 @@ class ErrorDialog:
         except:
             title = cls.errorMessages['UNKNOWN_ERROR']['title']
             body = cls.errorMessages['UNKNOWN_ERROR']['body'] + "<p><b>" + error_key + "</b></p>"
-            print(error_key)
+
+        if error_exception is not None:
+            body = f'{body}<p><br /><code>{str(error_exception)}</code><br /></p>'
 
         window = QErrorMessage(parent_window)
         window.resize(500, 250)

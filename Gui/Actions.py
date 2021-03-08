@@ -1,27 +1,31 @@
 import os
 import pathlib
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QObject, QThread
 from PySide6.QtGui import QAction
 
-from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialog
+from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialog, QProgressDialog
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, APPLICATION_FILE_EXTENSION, \
     MAIN_WINDOW_TITLE
 from Config.KeyboardShortcuts import KEY_IMPORT_MNEMO_CONNECT, KEY_IMPORT_MNEMO_DUMP_FILE, KEY_QUIT_APPLICATION, \
-    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW
+    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW, KEY_IMPORT_MNEMO_DUMP
 from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditSectionsDialog, EditSectionDialog, EditStationsDialog, \
     EditStationDialog
 from Gui.Dialogs import EditSurveysDialog
 from Importers.Mnemo import MnemoImporter
-from Models.ItemModels import SurveyCollection
 from Utils.Storage import SurveyData
+from Workers.Mixins import WorkerProgress
 
 
-class GlobalActions:
+class GlobalActions(WorkerProgress):
+
+    THREAD_MNEMO_CONNECTION = 'mnemo_connection'
 
     def __init__(self, parent_window):
+        super().__init__(parent_window)
         self.parent_window = parent_window
+
 
     def exit_application(self):
         action = QAction('Exit', self.parent_window)
@@ -87,6 +91,7 @@ class GlobalActions:
         action = QAction('Open', self.parent_window)
         action.setShortcut(KEY_OPEN)
         action.triggered.connect(lambda: self.open_callback())
+
         return action
 
     def open_callback(self):
@@ -137,22 +142,67 @@ class GlobalActions:
         settings.setValue('SaveFile/is_changed', False)
         settings.setValue('SaveFile/current_file_name', None)
 
-
-
     def mnemo_connect_to(self):
         action = QAction('Connect to Mnemo', self.parent_window)
         action.setShortcut(KEY_IMPORT_MNEMO_CONNECT)
         action.triggered.connect(lambda: self.mnemo_connect_to_callback())
+        if self.worker_is_running(self.THREAD_MNEMO_CONNECTION):
+            action.setDisabled(True)
+        else:
+            action.setDisabled(False)
         return action
 
     def mnemo_connect_to_callback(self):
-        self.parent_window.statusBar().showMessage('Connection to Mnemo...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
-        try:
-            dmp = MnemoImporter()
-            dmp.read_from_device()
-            SurveyCollection.add_survey(dmp.get_data())
-        except ConnectionError as err_mesg:
-            ErrorDialog.show_error_key(self.parent_window, str(err_mesg))
+        self.parent_window.statusBar().showMessage('Communicating with Mnemo.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+        mnemo_dump = MnemoImporter(
+            thread_action=MnemoImporter.ACTION_READ_DEVICE,
+            treeview_model=self.parent_window.tree_view.model()
+        )
+        self.worker_create_thread(
+            thread_object=mnemo_dump,
+            progressparams={"title": "Mnemo connection"}
+        )
+
+        self.worker_start(self.THREAD_MNEMO_CONNECTION)
+
+    def mnemo_dump(self):
+        action = QAction('Write Mnemo *.dmp file', self.parent_window)
+        action.setShortcut(KEY_IMPORT_MNEMO_DUMP)
+        action.triggered.connect(lambda: self.mnemo_dump_callback())
+        if self.worker_is_running(self.THREAD_MNEMO_CONNECTION):
+            action.setDisabled(True)
+        else:
+            action.setDisabled(False)
+        return action
+
+    def mnemo_dump_callback(self):
+        file_regex = f'(*.dmp)'
+        file_ident = f'Mnemo dump file {file_regex}'
+        settings = QSettings()
+        dialog = QFileDialog()
+        dialog.setWindowTitle('Save file')
+        dialog.setFilter(dialog.filter())
+        dialog.setDefaultSuffix('dmp')
+        dialog.setAcceptMode(QFileDialog.AcceptSave)
+        dialog.setNameFilters([file_ident])
+        dialog.setDirectory(settings.value('SaveFile/last_path', str(pathlib.Path.home())))
+        dialog.setOption(QFileDialog.DontUseNativeDialog)
+        if dialog.exec_() == QDialog.Accepted:
+            file_name = dialog.selectedFiles()[0]
+            if file_name[-4:] != f'.dmp':
+                file_name = f'{file_name}.dmp'
+            self.parent_window.statusBar().showMessage('Communicating with Mnemo.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+
+            mnemo_dump = MnemoImporter(
+                thread_action=MnemoImporter.ACTION_WRITE_DUMP,
+                out_file=file_name
+            )
+            self.worker_create_thread(
+                thread_object=mnemo_dump,
+                progressparams={"title": "Mnemo *.dmp file"}
+            )
+
+            self.worker_start(self.THREAD_MNEMO_CONNECTION)
 
     def mnemo_load_dump_file(self):
         action = QAction('Load Mnemo .dmp file', self.parent_window)
@@ -161,7 +211,7 @@ class GlobalActions:
         return action
 
     def mnemo_load_dump_file_callback(self):
-        self.parent_window.statusBar().showMessage('Loading mnemo dump file...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+        self.parent_window.statusBar().showMessage('Loading mnemo dump file.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
         try:
             file = QFileDialog(self.parent_window)
             settings = QSettings()
@@ -174,13 +224,21 @@ class GlobalActions:
 
             if file.exec() == QFileDialog.Accepted:
                 file_name = file.selectedFiles()[0]
-                dmp = MnemoImporter()
-                dmp.read_dump_file(file_name)
-                survey_id = dmp.get_data()
-                # I need to get the treeview somehow.
-                model = self.parent_window.tree_view.model()
-                model.append_survey_from_db(survey_id)
                 settings.setValue('SaveFile/last_path_mnemo_import', os.path.dirname(file_name))
+                mnemo = MnemoImporter(
+                    thread_action=MnemoImporter.ACTION_READ_DUMP,
+                    in_file=file_name,
+                    treeview_model=self.parent_window.tree_view.model()
+                )
+                self.worker_create_thread(
+                    thread_object=mnemo,
+                    progressparams={"title": "Mnemo read *.dmp file"}
+                )
+
+                self.worker_start(self.THREAD_MNEMO_CONNECTION)
+
+
+
 
         except Exception as err_mesg:
             ErrorDialog.show_error_key(self.parent_window, str(err_mesg))

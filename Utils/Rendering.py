@@ -36,8 +36,8 @@ class DragImage(CalcMixin):
         max_x = 0
         min_x = 0
 
-        max_y
-        min_y
+        max_y = 0
+        min_y = 0
         for station in self.stations:
 
             last_line = self.get_line(

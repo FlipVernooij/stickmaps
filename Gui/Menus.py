@@ -34,4 +34,5 @@ class MainMenu:
         fm = mb.addMenu('Import')
         fm.addAction(actions.mnemo_connect_to())
         fm.addAction(actions.mnemo_load_dump_file())
+        fm.addAction(actions.mnemo_dump())
 
