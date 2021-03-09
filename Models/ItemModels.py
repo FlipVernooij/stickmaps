@@ -20,12 +20,8 @@ class SectionItem(QStandardItem):
         # self.mime_data.setProperty("section_id", section_id)
         # self.drag.setMimeData(self.mime_data)
 
-
     def event(self, event):
         foo = 1
-
-
-
 
 
 class SurveyCollection(QStandardItemModel):
@@ -34,9 +30,14 @@ class SurveyCollection(QStandardItemModel):
     ITEM_TYPE_SECTION = 2
     ITEM_TYPE_SURVEY = 4
 
-    def __init__(self):
-        super(SurveyCollection, self).__init__()
+    def __init__(self, sql_manager):
+        super().__init__()
+        self.sql_manager = sql_manager
         self.load_model()
+
+    def set_sql_manager(self, manager):
+        self.sql_manager = manager
+        print(manager.connection_name)
 
     def load_model(self, survey_id: int = None):
         if QApplication.instance().palette().text().color().name() == '#ffff':
@@ -50,20 +51,24 @@ class SurveyCollection(QStandardItemModel):
             section_icon = QIcon(TREE_LIGHT_ICON_SECTION)
             station_icon = QIcon(TREE_LIGHT_ICON_STATION)
 
+        survey_db = self.sql_manager.factor(Survey)
+        section_db = self.sql_manager.factor(Section)
+        station_db = self.sql_manager.factor(Station)
         if survey_id is None:
-            survey_rows = Survey.fetch(f'SELECT survey_id, survey_name, device_name FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id DESC', [])
+            survey_rows = survey_db.db_fetch(f'SELECT survey_id, survey_name, device_name FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id DESC', [])
         else:
-            survey_rows = [Survey.get_survey(survey_id)]
+            survey_rows = [survey_db.get_survey(survey_id)]
+
         for survey_row in survey_rows:
             survey = QStandardItem(survey_icon, survey_row['survey_name'])
             survey.setDragEnabled(False)
             survey.survey_id = survey_row['survey_id']
             survey.item_type = self.ITEM_TYPE_SURVEY
-            section_rows = Section.fetch(f'SELECT section_id, section_name FROM {SQL_TABLE_SECTIONS} WHERE survey_id={survey_row["survey_id"]}')
+            section_rows = section_db.db_fetch(f'SELECT section_id, section_name FROM {SQL_TABLE_SECTIONS} WHERE survey_id={survey_row["survey_id"]}')
             for section_row in section_rows:
                 section = SectionItem(section_icon, section_row['section_name'],survey_row['survey_id'], section_row['section_id'])
 
-                station_rows = Station.fetch(
+                station_rows = station_db.db_fetch(
                     f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_row["section_id"]}')
                 for station_row in station_rows:
                     station = QStandardItem(station_icon,  station_row['station_name'])
@@ -90,7 +95,7 @@ class SurveyCollection(QStandardItemModel):
         row = data.copy()
         survey_id = row['survey_id']
         del row['survey_id']
-        Survey.update_survey(row,  survey_id)
+        self.sql_manager.factor(Survey).update_survey(row,  survey_id)
         ## We need to call setData() on self and not on the item.
         ## the DataChanged doesn't bubble up as you would expect.
         self.setData(index, row['survey_name'])
@@ -98,7 +103,7 @@ class SurveyCollection(QStandardItemModel):
 
     def delete_survey(self, item: QStandardItem) -> int:
         survey_id = item.survey_id
-        num_rows = Survey.delete_survey(survey_id)
+        num_rows = self.sql_manager.factor(Survey).delete_survey(survey_id)
 
         self.removeRows(item.row(), 1)
 
@@ -109,7 +114,7 @@ class SurveyCollection(QStandardItemModel):
         item = survey_item
         count = item.rowCount()
 
-        section_rows = Section.fetch(f'SELECT section_id, section_name FROM {SQL_TABLE_SECTIONS} WHERE survey_id={survey_id}')
+        section_rows = self.sql_manager.factor(Section).db_fetch(f'SELECT section_id, section_name FROM {SQL_TABLE_SECTIONS} WHERE survey_id={survey_id}')
 
         for i in range(count):
             section_item = item.child(i)
@@ -123,7 +128,7 @@ class SurveyCollection(QStandardItemModel):
         row = data.copy()
         section_id = row['section_id']
         del row['section_id']
-        Section.update_section(row,  section_id)
+        self.sql_manager.factor(Section).update_section(row,  section_id)
         ## We need to call setData() on self and not on the item.
         ## the DataChanged doesn't bubble up as you would expect.
         self.setData(index, row['section_name'])
@@ -131,7 +136,7 @@ class SurveyCollection(QStandardItemModel):
 
     def delete_section(self, item: QStandardItem) -> int:
         section_id = item.section_id
-        num_rows = Section.delete_section(section_id)
+        num_rows = self.sql_manager.factor(Section).delete_section(section_id)
         self.removeRows(item.row(), 1, item.parent().index())
         return num_rows
 
@@ -140,7 +145,7 @@ class SurveyCollection(QStandardItemModel):
         item = section_item
         count = item.rowCount()
 
-        station_rows = Station.fetch(f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_id}')
+        station_rows = self.sql_manager.factor(Station).db_fetch(f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_id}')
 
         for i in range(count):
             station_item = item.child(i)
@@ -154,13 +159,13 @@ class SurveyCollection(QStandardItemModel):
         row = data.copy()
         station_id = row['section_id']
         del row['station_id']
-        Station.update_station(row, station_id)
+        self.sql_manager.factor(Station).update_station(row, station_id)
         self.setData(index, row['station_name'])
         return
 
     def delete_station(self, item: QStandardItem) -> int:
         station_id = item.station_id
-        num_rows = Station.delete_station(station_id)
+        num_rows = self.sql_manager.factor(Station).delete_station(station_id)
         self.removeRows(item.row(), 1, item.parent().index())
         return num_rows
 

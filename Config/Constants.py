@@ -1,3 +1,5 @@
+DEBUG = True
+
 ORGANISATION_NAME = 'Squad'
 ORGANISATION_DOMAIN = 'squad.nl'
 APPLICATION_NAME = 'StickMaps'

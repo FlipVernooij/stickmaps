@@ -1,21 +1,19 @@
+import os
 import sys
 import time
 from datetime import datetime
 
 import serial
-from PySide6.QtCore import QObject, Signal
 from serial.tools import list_ports
 
 from Config.Constants import DEVICE_NAME_MNEMO
-from Gui.Dialogs import ErrorDialog
-from Models.TableModels import Survey, Section, Station, QueryMixin
+from Models.TableModels import Survey, Section, Station, SqlManager
+from Workers.Mixins import WorkerMixin
 
-class MnemoImporter(QObject):
 
-    finished = Signal()
-    error = Signal(str, Exception)
-    progress = Signal(int)
-    task_label = Signal(str)
+class MnemoImporter(WorkerMixin):
+
+
 
     DEVICE_DESCRIPTION = "MCP2221 USB-I2C/UART Combo"
 
@@ -32,7 +30,6 @@ class MnemoImporter(QObject):
             baudrate=9600,
             timeout=1,
             verbose=0,
-            treeview_model=None,
             thread_action=None,
             in_file=None,
             out_file=None
@@ -49,54 +46,48 @@ class MnemoImporter(QObject):
         self.sections = []
         self.stations = []
 
-        self.treeview_model = treeview_model
-
         self.tread_action = thread_action
         self.out_file = out_file
         self.in_file = in_file
         self.last_error = None
 
-        self.database = None
 
     def run(self):
-        self.database = QueryMixin.init_db('MNEMO_WORKER_THREAD')
+        ### yeah... mmm I need to get the manager to the mixin,... but erhmmm...
+        self.set_sql_manager('MNEMO_WORKER_THREAD')
         if self.tread_action == self.ACTION_WRITE_DUMP:
             try:
                 self.read_from_device()
                 self.write_dumpfile(self.out_file)
-                self.task_label.emit('Done')
-                self.finished.emit()
+                self.s_task_label.emit('Done')
+                self.finished()
             except Exception as error:
-                self.error.emit(str(error), self.last_error)
-                self.finished.emit()
+                self.s_error.emit(str(error), self.last_error)
+                self.finished()
             return
 
         if self.tread_action == self.ACTION_READ_DEVICE:
             try:
                 self.read_from_device()
                 survey_id = self.get_data()
-                # I need to get the treeview somehow.
-                # model = self.treeview_model
-                # model.append_survey_from_db(survey_id)
-                self.task_label.emit('Done')
-                self.finished.emit()
+                self.s_task_label.emit('Done')
+                self.s_reload_treeview.emit(survey_id)
+                self.finished()
             except Exception as error:
-                self.error.emit(str(error), self.last_error)
-                self.finished.emit()
+                self.s_error.emit(str(error), self.last_error)
+                self.finished()
             return
 
         if self.tread_action == self.ACTION_READ_DUMP:
             try:
                 self.read_dump_file(self.in_file)
                 survey_id = self.get_data()
-                # I need to get the treeview somehow.
-                # model = self.treeview_model
-                # model.append_survey_from_db(survey_id)
-                self.task_label.emit('Done')
-                self.finished.emit()
+                self.s_reload_treeview.emit(survey_id)
+                self.s_task_label.emit('Done')
+                self.finished()
             except Exception as error:
-                self.error.emit(str(error), self.last_error)
-                self.finished.emit()
+                self.s_error.emit(str(error), self.last_error)
+                self.finished()
             return
 
         raise AttributeError(f'Unknown threadAction: {self.tread_action}')
@@ -115,7 +106,7 @@ class MnemoImporter(QObject):
 
     def read_from_device(self):
         try:
-            self.task_label.emit('Connection to device')
+            self.s_task_label.emit('Connection to device')
             self.device = self.get_device_location(self.device)
             try:
                 ser = serial.Serial(self.device, self.baudrate, timeout=self.timeout, bytesize=8, stopbits=1, parity='N')
@@ -143,7 +134,7 @@ class MnemoImporter(QObject):
             while True:
                 if c > 100:
                     time.sleep(0.5)
-                    self.task_label.emit('Finished reading data')
+                    self.s_task_label.emit('Finished reading data')
                     if len(dump_file) == 0:
                         raise Exception('NO_DATA_FOUND')
                     else:
@@ -152,12 +143,12 @@ class MnemoImporter(QObject):
                     break
                 c = c + 1
                 time.sleep(0.1)
-                self.task_label.emit(f'Searching for entries {c} tries left')
+                self.s_task_label.emit(f'Searching for entries {c} tries left')
                 while ser.in_waiting > 0:
                     x = x + 1
-                    self.task_label.emit(f'Reading byte {x}')
+                    self.s_task_label.emit(f'Reading byte {x}')
                     dump_file.append(self.setbit_read(ser.read(1)))
-                    self.progress.emit(x)
+                    self.s_progress.emit(x)
 
             self.import_list = dump_file
             if ser.is_open:
@@ -168,7 +159,15 @@ class MnemoImporter(QObject):
                 ser.close()
             print('Keyboard interupt... RESTART THE MNEMO before rereading as you will end up somewhere in the middle of the stream.')
 
+    def _readableSize(self, bytes, index=0):
+        names = ['bytes', 'kilobytes', 'megabytes', 'gigabytes']
+        if bytes < 1000:
+            return f'{round(bytes, 2)} {names[index]}'
+        return self._readableSize(bytes/1000, index+1)
+
     def read_dump_file(self, path):
+        f_size = self._readableSize(os.stat(path).st_size)
+        self.s_task_label.emit(f'Reading file {f_size}')
         with open(path, "r") as dmp_file:
             lines = dmp_file.readlines()
             list = lines[0].split(';')
@@ -179,7 +178,7 @@ class MnemoImporter(QObject):
     def write_dumpfile(self, path):
         if not self.import_list:
             raise Exception('NO_DATA_FOUND')
-        self.task_label.emit('Writing data to file.')
+        self.s_task_label.emit('Writing data to file.')
         text_file = open(path, "w")
         text_file.write(';'.join(str(x) for x in self.import_list))
         text_file.close()
@@ -192,9 +191,7 @@ class MnemoImporter(QObject):
         return survey_id
 
     def get_survey(self):
-        print('DB = ')
-        print(self.database)
-        survey_id = Survey.insert_survey(device_name=DEVICE_NAME_MNEMO)
+        survey_id = self.sql_manager().factor(Survey).insert_survey(device_name=DEVICE_NAME_MNEMO)
         index = 6
         while True:
             index = self.get_section(index, survey_id)
@@ -211,7 +208,7 @@ class MnemoImporter(QObject):
         ])
 
         mnemo_section_number = self.too_2byte_int(self.import_list[start_from + 3], self.import_list[start_from + 4])
-        section_id = Section.insert_section(
+        section_id = self.sql_manager().factor(Section).insert_section(
             survey_id=survey_id,
             section_reference_id=mnemo_section_number,
             device_properties={"line_mode": mnemo_mode}
@@ -249,7 +246,7 @@ class MnemoImporter(QObject):
         n = 11
 
         avg_az_out = (azimuth_out + azimuth_in_new) / 2
-        Station.insert_station(
+        self.sql_manager().factor(Station).insert_station(
             survey_id=survey_id,
             section_id=section_id,
             section_reference_id=section_reference_id,
@@ -321,10 +318,7 @@ class MnemoImporter(QObject):
 
 
 if __name__ == '__main__':
-    QueryMixin.init_db()
-    QueryMixin.create_tables()
-
-    importer = MnemoImporter(thread_action=MnemoImporter.ACTION_READ_DEVICE)
+    importer = MnemoImporter(thread_action=MnemoImporter.ACTION_READ_DUMP, in_file='/home/flip/Code/stickmaps/data_files/findingmnemo_orig.dmp')
     importer.run()
     #importer.read_dump_file('/home/flip/Code/stickmaps/data_files/findingmnemo_orig.dmp')
     # print(f"DEVICE is at: {importer.get_device_location()}")

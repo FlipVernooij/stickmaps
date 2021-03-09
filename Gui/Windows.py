@@ -4,11 +4,11 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMes
     QAbstractItemView, QMenu, QScrollArea
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
-    MAIN_WINDOW_ICON
+    MAIN_WINDOW_ICON, DEBUG
 from Gui.Actions import TreeActions, GlobalActions
 from Gui.Menus import MainMenu
 from Models.ItemModels import SurveyCollection, SectionItem
-from Models.TableModels import QueryMixin
+from Models.TableModels import QueryMixin, SqlManager
 from Utils.Rendering import DragImage
 
 
@@ -21,20 +21,24 @@ class MainApplicationWindow(QMainWindow):
         self.central_widget = MapView(self)
         self.setWindowTitle(MAIN_WINDOW_TITLE)
         self.setWindowIcon(QIcon(MAIN_WINDOW_ICON))
-        self.init_database()
+        self.sql_manager = self.init_database()
         self.setup_interface()
         self.statusBar().showMessage('Loading ...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
         self.read_settings()
         self.show()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        event.accept()
-        response = QMessageBox.question(self, 'Quit application', 'Are you sure you want to quit?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if DEBUG is True:
+            event.accept()
+            return
+
+        response = QMessageBox.question(self, 'Quit STAPP application', 'Are you sure you want to quit?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if response == QMessageBox.Yes:
             self.write_settings()
             actions = GlobalActions(self)
             actions._check_if_save_required()
-            QueryMixin.close_db()
+            self.sql_manager.drop_tables()
             event.accept()
         else:
             event.ignore()
@@ -52,8 +56,9 @@ class MainApplicationWindow(QMainWindow):
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
 
     def init_database(self):
-        QueryMixin.init_db()
-        QueryMixin.create_tables()
+        obj = SqlManager('default_db')
+        obj.create_tables()
+        return obj
 
     def write_settings(self):
         self.settings = QSettings()
@@ -86,7 +91,7 @@ class SurveyOverview(QTreeView):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.build_contextmenu)
 
-        model = SurveyCollection()
+        model = SurveyCollection(self.main_window.sql_manager)
         self.setModel(model)
 
         self.setMinimumWidth(TREE_START_WIDTH)
@@ -134,8 +139,6 @@ class SurveyOverview(QTreeView):
         mime.setText(item.text())
         pixmap = DragImage(item.section_id, item.text())
         drag.setPixmap(pixmap.get_pixmap())
-
-        self.main_window.central_widget.
 
         drag.setMimeData(mime)
         drag.exec_(Qt.CopyAction)

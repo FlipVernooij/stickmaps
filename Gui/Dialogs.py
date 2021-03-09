@@ -115,7 +115,7 @@ class EditSurveysDialog(QDialog):
 
     def __init__(self, parent):
         super(EditSurveysDialog, self).__init__(parent)
-        model = Survey()
+        model = parent.sql_manager.factor(Survey)
         model.setEditStrategy(QSqlTableModel.OnFieldChange)
 
         model.setHeaderData(0, Qt.Horizontal, "Survey ID")
@@ -142,7 +142,7 @@ class EditSurveyDialog(QDialog):
 
     def __init__(self, parent, item):
         super().__init__(parent)
-        self.survey = Survey.get_survey(item.survey_id)
+        self.survey = parent.main_window.sql_manager.factor(Survey).get_survey(item.survey_id)
 
         layout = QFormLayout()
         layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
@@ -209,7 +209,7 @@ class EditSectionsDialog(QDialog):
         self.item = item
         self.setWindowTitle('Edit sections')
         self.resize(800, 400)
-        model = Section()
+        model = parent.main_window.sql_manager.factor(Section)
         model.setEditStrategy(QSqlTableModel.OnManualSubmit)
         model.setFilter(f'survey_id={self.survey_id}')
 
@@ -266,7 +266,7 @@ class EditSectionDialog(QDialog):
 
     def __init__(self, parent, item):
         super().__init__(parent)
-        self.section = Section.get_section(item.section_id)
+        self.section = parent.main_window.sql_manager.factor(Section).get_section(item.section_id)
 
         layout = QFormLayout()
         layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
@@ -321,10 +321,9 @@ class EditStationsDialog(QDialog):
         self.item = item
         self.setWindowTitle('Edit stations')
         self.resize(800, 400)
-        model = Station()
+        model = parent.main_window.sql_manager.factor(Station)
         model.setEditStrategy(QSqlTableModel.OnManualSubmit)
         model.setFilter(f'section_id={self.section_id}')
-
 
         model.setHeaderData(0, Qt.Horizontal, "Station id")
         model.setHeaderData(1, Qt.Horizontal, "Section id")
@@ -340,7 +339,6 @@ class EditStationsDialog(QDialog):
         model.setHeaderData(11, Qt.Horizontal, "Azimuth out corrected")
         model.setHeaderData(12, Qt.Horizontal, "Length out")
         model.setHeaderData(13, Qt.Horizontal, "Station Comment")
-
 
         view = QTableView(self)
         view.setSelectionMode(QTableView.NoSelection)
@@ -390,7 +388,7 @@ class EditStationDialog(QDialog):
 
     def __init__(self, parent, item):
         super().__init__(parent)
-        self.station = Station.get_station(item.station_id)
+        self.station = parent.main_window.sql_manager.factor(Station).get_station(item.station_id)
 
         layout = QFormLayout()
         layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)

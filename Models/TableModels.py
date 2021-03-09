@@ -10,78 +10,19 @@ from Config.Constants import SQL_TABLE_STATIONS, SQL_TABLE_SECTIONS, SQL_TABLE_S
 
 class QueryMixin:
 
-
-    @classmethod
-    def init_db(cls, connection_name=SQL_CONNECTION_NAME):
-        db = QSqlDatabase.addDatabase('QSQLITE', connection_name)
-        db.setDatabaseName(SQL_DB_LOCATION)
-        if not db.open():
-            raise ConnectionError("Database Error: {}".format(db.lastError()))
-        return db
-
-    @classmethod
-    def close_db(cls):
-        cls.drop_tables()
-        # @todo this does not seem to remove the actual database(file)
-        #       Without dropping the tables, data will persist.
-        db = QSqlDatabase.database()
-        db.close()
-        del db
-        QSqlDatabase.removeDatabase(SQL_CONNECTION_NAME)
-
-    @classmethod
-    def create_tables(cls):
-        Survey.create_database_tables()
-        Section.create_database_tables()
-        Station.create_database_tables()
-        Contact.create_database_tables()
-        Surveyor.create_database_tables()
-        Explorer.create_database_tables()
-
-    @classmethod
-    def drop_tables(cls):
-        Contact.drop_database_tables()
-        Explorer.drop_database_tables()
-        Surveyor.drop_database_tables()
-        Station.drop_database_tables()
-        Section.drop_database_tables()
-        Survey.drop_database_tables()
-
-    @classmethod
-    def dump_tables(cls):
-        return {
-            SQL_TABLE_SURVEYS: Survey.dump_table(),
-            SQL_TABLE_SECTIONS: Section.dump_table(),
-            SQL_TABLE_STATIONS: Station.dump_table(),
-            SQL_TABLE_CONTACTS: Contact.dump_table(),
-            SQL_TABLE_SURVEYORS: Surveyor.dump_table(),
-            SQL_TABLE_EXPLORERS: Explorer.dump_table()
-        }
-
-    @classmethod
-    def load_table_data(cls, data: dict) -> int:
-        Survey.load_table(data[SQL_TABLE_SURVEYS])
-        Section.load_table(data[SQL_TABLE_SECTIONS])
-        Station.load_table(data[SQL_TABLE_STATIONS])
-        Contact.load_table(data[SQL_TABLE_CONTACTS])
-        Explorer.load_table(data[SQL_TABLE_EXPLORERS])
-        Surveyor.load_table(data[SQL_TABLE_SURVEYORS])
-
-    @classmethod
-    def exec(cls, sql):
+    def db_exec(self, sql):
         settings = QSettings()
         settings.setValue('SaveFile/is_changed', True)
-        query = QSqlQuery()
+        query = QSqlQuery(self.db)
         return query.exec_(sql)
 
-    @classmethod
-    def insert(cls, table_name: str, values: dict) -> int:
+    def db_insert(self, table_name: str, values: dict) -> int:
         settings = QSettings()
         settings.setValue('SaveFile/is_changed', True)
         col_names = ', '.join(values.keys())
         placeholders = ', '.join('?' for x in values.values())
         query = 'INSERT INTO {} ({})VALUES({})'.format(table_name, col_names, placeholders)
-        obj = QSqlQuery()
+        obj = QSqlQuery(self.db)
         obj.prepare(query)
 
         for value in values.values():
@@ -93,8 +34,7 @@ class QueryMixin:
         obj.clear()
         return insert_id
 
-    @classmethod
-    def insert_bulk(cls, table_name: str, values: list, max_batch_size: int=10, start_at: int=0) -> int:
+    def db_insert_bulk(self, table_name: str, values: list, max_batch_size: int=10, start_at: int=0) -> int:
         settings = QSettings()
         settings.setValue('SaveFile/is_changed', True)
         col_names = ', '.join(values[0].keys())
@@ -110,7 +50,7 @@ class QueryMixin:
 
         placeholder = ', '.join(placeholders)
         query = f'INSERT INTO {table_name} ({col_names})VALUES {placeholder}'
-        obj = QSqlQuery()
+        obj = QSqlQuery(self.db)
         obj.prepare(query)
         for value in params:
             obj.addBindValue(value)
@@ -119,16 +59,15 @@ class QueryMixin:
             raise SyntaxError('Sql bulk insert query failed!')
         row_count = obj.numRowsAffected()
         if new_start_at > 0:
-            row_count = row_count + cls.insert_bulk(table_name, values, max_batch_size, new_start_at)
+            row_count = row_count + self.db_insert_bulk(table_name, values, max_batch_size, new_start_at)
         return row_count
 
-    @classmethod
-    def update(cls, table_name: str, values: dict, where_str: str, params: list = []) -> int:
+    def db_update(self, table_name: str, values: dict, where_str: str, params: list = []) -> int:
         settings = QSettings()
         settings.setValue('SaveFile/is_changed', True)
         update_cols = ', '.join('{}=?'.format(x) for x in values.keys())
         query = 'UPDATE {} SET {} WHERE {}'.format(table_name, update_cols, where_str)
-        obj = QSqlQuery()
+        obj = QSqlQuery(self.db)
         obj.prepare(query)
 
         for value in values.values():
@@ -139,12 +78,11 @@ class QueryMixin:
         obj.exec_()
         return obj.numRowsAffected()
 
-    @classmethod
-    def delete(cls, table_name: str, where_str: str, params: list = []) -> int:
+    def db_delete(self, table_name: str, where_str: str, params: list = []) -> int:
         settings = QSettings()
         settings.setValue('SaveFile/is_changed', True)
         query = f'DELETE FROM {table_name} WHERE {where_str}'
-        obj = QSqlQuery()
+        obj = QSqlQuery(self.db)
         obj.prepare(query)
 
         for value in params:
@@ -153,13 +91,12 @@ class QueryMixin:
         obj.exec_()
         return obj.numRowsAffected()
 
-    @classmethod
-    def get(cls, table_name, where_str, params) -> dict:
+    def db_get(self, table_name, where_str, params) -> dict:
         if type(params) is not list:
             params = [params]
 
         query = f"SELECT * FROM {table_name} WHERE {where_str}"
-        obj = QSqlQuery()
+        obj = QSqlQuery(self.db)
         obj.prepare(query)
 
         for param in params:
@@ -177,12 +114,11 @@ class QueryMixin:
 
         return row
 
-    @classmethod
-    def fetch(cls, sql, params=[]):
+    def db_fetch(self, sql, params=[]):
         if type(params) is not list:
             params = [params]
 
-        obj = QSqlQuery()
+        obj = QSqlQuery(self.db)
         obj.prepare(sql)
 
         for param in params:
@@ -197,11 +133,79 @@ class QueryMixin:
             rows.append(row)
         return rows
 
+    def __init__(self, db):
+        self.db = db
 
-class Survey(QSqlTableModel, QueryMixin):
 
-    @classmethod
-    def create_database_tables(cls):
+class SqlManager:
+
+    def drop_db(self):
+        self.drop_tables()
+        self.close_connection()
+        QSqlDatabase.removeDatabase(self.connection_name)
+
+    def factor(self, object_name):
+        return object_name(self.db)
+
+    def create_tables(self):
+        self.factor(Survey).create_database_tables()
+        self.factor(Section).create_database_tables()
+        self.factor(Station).create_database_tables()
+        self.factor(Contact).create_database_tables()
+        self.factor(Surveyor).create_database_tables()
+        self.factor(Explorer).create_database_tables()
+
+    def drop_tables(self):
+        self.factor(Survey).drop_database_tables()
+        self.factor(Section).drop_database_tables()
+        self.factor(Station).drop_database_tables()
+        self.factor(Contact).drop_database_tables()
+        self.factor(Surveyor).drop_database_tables()
+        self.factor(Explorer).drop_database_tables()
+
+    def dump_tables(self):
+        return {
+            SQL_TABLE_SURVEYS: self.factor(Survey).dump_table(),
+            SQL_TABLE_SECTIONS: self.factor(Section).dump_table(),
+            SQL_TABLE_STATIONS: self.factor(Station).dump_table(),
+            SQL_TABLE_CONTACTS: self.factor(Contact).dump_table(),
+            SQL_TABLE_SURVEYORS: self.factor(Surveyor).dump_table(),
+            SQL_TABLE_EXPLORERS: self.factor(Explorer).dump_table()
+        }
+
+    def load_table_data(self, data: dict) -> int:
+        c = 0
+        c = c + self.factor(Survey).load_table(data[SQL_TABLE_SURVEYS])
+        c = c + self.factor(Section).load_table(data[SQL_TABLE_SECTIONS])
+        c = c + self.factor(Station).load_table(data[SQL_TABLE_STATIONS])
+        c = c + self.factor(Contact).load_table(data[SQL_TABLE_CONTACTS])
+        c = c + self.factor(Explorer).load_table(data[SQL_TABLE_EXPLORERS])
+        c = c + self.factor(Surveyor).load_table(data[SQL_TABLE_SURVEYORS])
+        return c
+
+    def close_connection(self):
+        if self.db is not None:
+            self.db.close()
+            self.db = None
+            if QSqlDatabase.contains(self.connection_name):
+                QSqlDatabase.removeDatabase(self.connection_name)
+
+    def __init__(self, connection_name=SQL_CONNECTION_NAME):
+        self.connection_name = connection_name
+        if QSqlDatabase.contains(connection_name) is False:
+            self.db = QSqlDatabase.addDatabase('QSQLITE', connection_name)
+            self.db.setDatabaseName(SQL_DB_LOCATION)
+        else:
+            self.db = QSqlDatabase.database(connection_name)
+
+        if not self.db.open():
+            raise ConnectionError(f"Database Error: {self.db.lastError()}")
+
+
+
+class Survey(QueryMixin, QSqlTableModel):
+
+    def create_database_tables(self):
         query = """
             CREATE TABLE IF NOT EXISTS surveys (
                 survey_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -211,25 +215,21 @@ class Survey(QSqlTableModel, QueryMixin):
                 survey_comment TEXT
             )
         """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def drop_database_tables(cls):
+    def drop_database_tables(self):
         query = f"""
                     DROP TABLE IF EXISTS {SQL_TABLE_SURVEYS}
                 """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def get_survey(cls, survey_id) -> dict:
-        return cls.get(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
+    def get_survey(self, survey_id) -> dict:
+        return self.db_get(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
 
-    @classmethod
-    def insert_survey(cls, device_name: str) -> int:
-        model = cls()
-        model.select()
-        # do not set breakstations here, you will start inserting multiple records per breakstation.
-        record = model.record()
+    def insert_survey(self, device_name: str) -> int:
+        self.select()
+        # do not set break-points here, you will start inserting multiple records per break-point.
+        record = self.record()
         now = datetime.now()
         record.setValue('survey_id', None)
         record.setValue('device_name', device_name)
@@ -237,45 +237,40 @@ class Survey(QSqlTableModel, QueryMixin):
         record.setValue('survey_name', now.strftime('%c'))
         record.setValue('survey_comment', '')
         # -1 is set to indicate that it will be added to the last row
-        if model.insertRecord(-1, record):
-            model.submitAll()
-            last_insert_id = model.query().lastInsertId()
+        if self.insertRecord(-1, record):
+            self.submitAll()
+            last_insert_id = self.query().lastInsertId()
             return last_insert_id
 
         raise SyntaxError('Database error: Could not insert survey')
 
-    @classmethod
-    def update_survey(cls, values: dict, survey_id: int) -> int:
-        return cls.update(SQL_TABLE_SURVEYS, values, 'survey_id=?', [survey_id])
+    def update_survey(self, values: dict, survey_id: int) -> int:
+        return self.db_update(SQL_TABLE_SURVEYS, values, 'survey_id=?', [survey_id])
 
-    @classmethod
-    def delete_survey(cls, survey_id: int) -> int:
-        a = cls.delete(SQL_TABLE_STATIONS, 'survey_id=?', [survey_id])
-        b = cls.delete(SQL_TABLE_SECTIONS, 'survey_id=?', [survey_id])
-        c = cls.delete(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
+    def delete_survey(self, survey_id: int) -> int:
+        a = self.db_delete(SQL_TABLE_STATIONS, 'survey_id=?', [survey_id])
+        b = self.db_delete(SQL_TABLE_SECTIONS, 'survey_id=?', [survey_id])
+        c = self.db_delete(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
         return a + b + c
 
-    @classmethod
-    def dump_table(cls):
-        return cls.fetch(f"SELECT * FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id ASC")
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id ASC")
 
-    @classmethod
-    def load_table(cls, table_data: list):
+    def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
-        return cls.insert_bulk(SQL_TABLE_SURVEYS, table_data)
+        return self.db_insert_bulk(SQL_TABLE_SURVEYS, table_data)
 
-    def __init__(self):
-        super().__init__()
-
+    def __init__(self, db):
+        QueryMixin.__init__(self, db=db)
+        QSqlTableModel.__init__(self, db=db)
         self.setTable(SQL_TABLE_SURVEYS)
         self.setEditStrategy(self.OnManualSubmit)
 
 
-class Section(QSqlTableModel, QueryMixin):
+class Section(QueryMixin, QSqlTableModel):
 
-    @classmethod
-    def create_database_tables(cls):
+    def create_database_tables(self):
         query = f"""
             CREATE TABLE IF NOT EXISTS {SQL_TABLE_SECTIONS} (
                 section_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -286,25 +281,21 @@ class Section(QSqlTableModel, QueryMixin):
                 section_comment TEXT
             )
         """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def drop_database_tables(cls):
+    def drop_database_tables(self):
         query = f"""
                     DROP TABLE IF EXISTS {SQL_TABLE_SECTIONS}
                 """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def get_section(cls, section_id) -> dict:
-        return cls.get(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
+    def get_section(self, section_id) -> dict:
+        return self.db_get(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
 
-    @classmethod
-    def insert_section(cls, survey_id: int, section_reference_id: int, device_properties: dict) -> int:
-        model = cls()
-        model.select()
+    def insert_section(self, survey_id: int, section_reference_id: int, device_properties: dict) -> int:
+        self.select()
         # do not set breakstations here, you will start inserting multiple records per breakstation.
-        record = model.record()
+        record = self.record()
         now = datetime.now()
         record.setValue('section_id', None)
         record.setValue('survey_id', survey_id)
@@ -313,38 +304,34 @@ class Section(QSqlTableModel, QueryMixin):
         record.setValue('section_name', f'Section {section_reference_id}')
         record.setValue('section_comment', '')
         # -1 is set to indicate that it will be added to the last row
-        if model.insertRecord(-1, record):
-            model.submitAll()
-            last_insert_id = model.query().lastInsertId()
+        if self.insertRecord(-1, record):
+            self.submitAll()
+            last_insert_id = self.query().lastInsertId()
             return last_insert_id
 
         raise SyntaxError('Database error: Could not insert section')
 
-    @classmethod
-    def update_section(cls, values: dict, section_id: int) -> int:
-        return cls.update(SQL_TABLE_SECTIONS, values, 'section_id=?', [section_id])
+    def update_section(self, values: dict, section_id: int) -> int:
+        return self.db_update(SQL_TABLE_SECTIONS, values, 'section_id=?', [section_id])
 
-    @classmethod
-    def delete_section(cls, section_id: int) -> int:
-        a = cls.delete(SQL_TABLE_STATIONS, 'section_id=?', [section_id])
-        b = cls.delete(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
+    def delete_section(self, section_id: int) -> int:
+        a = self.db_delete(SQL_TABLE_STATIONS, 'section_id=?', [section_id])
+        b = self.db_delete(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
         return a + b
 
-    @classmethod
-    def dump_table(cls):
-        return cls.fetch(f"SELECT * FROM {SQL_TABLE_SECTIONS} ORDER BY section_id ASC")
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_SECTIONS} ORDER BY section_id ASC")
 
-    @classmethod
-    def load_table(cls, table_data: list):
+    def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
-        return cls.insert_bulk(SQL_TABLE_SECTIONS, table_data)
+        return self.db_insert_bulk(SQL_TABLE_SECTIONS, table_data)
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, db):
+        QueryMixin.__init__(self, db=db)
+        QSqlTableModel.__init__(self, db=db)
         self.setTable(SQL_TABLE_SECTIONS)
         self.setEditStrategy(self.OnManualSubmit)
-        # self.setRelation(1, QSqlRelation(SQL_TABLE_SURVEYS, 'survey_id', 'survey_name'))
 
     def flags(self, index: QModelIndex):
         flags = Qt.NoItemFlags
@@ -354,10 +341,9 @@ class Section(QSqlTableModel, QueryMixin):
         return flags | Qt.ItemIsEditable | Qt.ItemIsEnabled
 
 
-class Station(QSqlTableModel, QueryMixin):
+class Station(QueryMixin, QSqlTableModel):
 
-    @classmethod
-    def create_database_tables(cls):
+    def create_database_tables(self):
         query = f"""
             CREATE TABLE IF NOT EXISTS {SQL_TABLE_STATIONS} (
                 station_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -378,17 +364,15 @@ class Station(QSqlTableModel, QueryMixin):
         """
         # reference_id is the "id" as provider by the Mnemo.
         # so it is a local reference id only unique to the section itself.
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def drop_database_tables(cls):
+    def drop_database_tables(self):
         query = f"""
                     DROP TABLE IF EXISTS {SQL_TABLE_STATIONS}
                 """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def insert_station(cls,
+    def insert_station(self,
                        survey_id: int,
                        section_id: int,
                        section_reference_id: int,
@@ -402,10 +386,9 @@ class Station(QSqlTableModel, QueryMixin):
                        station_properties: dict = {},
                        station_name: str = ''
                        ) -> int:
-        model = cls()
-        model.select()
+        self.select()
         # do not set breakstations here, you will start inserting multiple records per breakstation.
-        record = model.record()
+        record = self.record()
         now = datetime.now()
         record.setValue('station_id', None)
         record.setValue('section_id', section_id)
@@ -422,83 +405,79 @@ class Station(QSqlTableModel, QueryMixin):
         record.setValue('station_name', station_name)
 
         # -1 is set to indicate that it will be added to the last row
-        if model.insertRecord(-1, record):
-            model.submitAll()
-            last_insert_id = model.query().lastInsertId()
+        if self.insertRecord(-1, record):
+            self.submitAll()
+            last_insert_id = self.query().lastInsertId()
             return last_insert_id
 
         raise SyntaxError('Database error: Could not insert station')
 
-    @classmethod
-    def update_station(cls, values: dict, station_id: int) -> int:
-        return cls.update(SQL_TABLE_STATIONS, values, 'station_id=?', [station_id])
 
-    @classmethod
-    def delete_station(cls, station_id: int) -> int:
-        return cls.delete(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
+    def update_station(self, values: dict, station_id: int) -> int:
+        return self.db_update(SQL_TABLE_STATIONS, values, 'station_id=?', [station_id])
 
-    @classmethod
-    def dump_table(cls):
-        return cls.fetch(f"SELECT * FROM {SQL_TABLE_STATIONS} ORDER BY station_id ASC")
 
-    @classmethod
-    def load_table(cls, table_data: list):
+    def delete_station(self, station_id: int) -> int:
+        return self.db_delete(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
+
+
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_STATIONS} ORDER BY station_id ASC")
+
+
+    def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
-        return cls.insert_bulk(SQL_TABLE_STATIONS, table_data)
+        return self.db_insert_bulk(SQL_TABLE_STATIONS, table_data)
 
-    @classmethod
-    def get_station(cls, station_id) -> dict:
-        return cls.get(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
 
-    @classmethod
-    def get_stations_for_section(cls, section_id: int) -> list:
-        return cls.fetch(f'SELECT * FROM {SQL_TABLE_STATIONS} WHERE section_id=? ORDER BY station_id ASC', [section_id])
+    def get_station(self, station_id) -> dict:
+        return self.db_get(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
 
-    def __init__(self):
-        super().__init__()
+    def get_stations_for_section(self, section_id: int) -> list:
+        return self.db_fetch(f'SELECT * FROM {SQL_TABLE_STATIONS} WHERE section_id=? ORDER BY station_id ASC', [section_id])
+
+    def __init__(self, db):
+        QueryMixin.__init__(self, db=db)
+        QSqlTableModel.__init__(self, db=db)
         self.setTable(SQL_TABLE_STATIONS)
         self.setEditStrategy(self.OnManualSubmit)
 
 
-class Contact(QSqlTableModel, QueryMixin):
+class Contact(QueryMixin, QSqlTableModel):
 
-    @classmethod
-    def create_database_tables(cls):
+    def create_database_tables(self):
         query = f"""
                    CREATE TABLE IF NOT EXISTS {SQL_TABLE_CONTACTS} (
                        contact_id INTEGER PRIMARY KEY AUTOINCREMENT,
                        name TEXT
                    )
                """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def drop_database_tables(cls):
+    def drop_database_tables(self):
         query = f"""
                     DROP TABLE IF EXISTS {SQL_TABLE_CONTACTS}
                 """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def dump_table(cls):
-        return cls.fetch(f"SELECT * FROM {SQL_TABLE_CONTACTS} ORDER BY contact_id ASC")
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_CONTACTS} ORDER BY contact_id ASC")
 
-    @classmethod
-    def load_table(cls, table_data: list):
+    def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
-        return cls.insert_bulk(SQL_TABLE_CONTACTS, table_data)
+        return self.db_insert_bulk(SQL_TABLE_CONTACTS, table_data)
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, db):
+        QueryMixin.__init__(self, db=db)
+        QSqlTableModel.__init__(self, db=db)
         self.setTable(SQL_TABLE_CONTACTS)
 
 
-class Explorer(QSqlRelationalTableModel, QueryMixin):
+class Explorer(QueryMixin, QSqlTableModel):
 
-    @classmethod
-    def create_database_tables(cls):
+    def create_database_tables(self):
         query = f"""
                    CREATE TABLE IF NOT EXISTS {SQL_TABLE_EXPLORERS} (
                        b_explorer_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -507,36 +486,31 @@ class Explorer(QSqlRelationalTableModel, QueryMixin):
                        name TEXT
                    )
                """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def drop_database_tables(cls):
+    def drop_database_tables(self):
         query = f"""
                        DROP TABLE IF EXISTS {SQL_TABLE_EXPLORERS}
                    """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def dump_table(cls):
-        return cls.fetch(f"SELECT * FROM {SQL_TABLE_EXPLORERS} ORDER BY explorer_id ASC")
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_EXPLORERS} ORDER BY explorer_id ASC")
 
-    @classmethod
-    def load_table(cls, table_data: list):
+    def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
-        return cls.insert_bulk(SQL_TABLE_EXPLORERS, table_data)
+        return self.db_insert_bulk(SQL_TABLE_EXPLORERS, table_data)
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, db):
+        QueryMixin.__init__(self, db=db)
+        QSqlTableModel.__init__(self, db=db)
         self.setTable(SQL_TABLE_EXPLORERS)
-        self.setRelation(1, QSqlRelation(SQL_TABLE_SURVEYS, 'survey_id', 'name'))
-        self.setRelation(2, QSqlRelation(SQL_TABLE_CONTACTS, 'contact_id', 'name'))
 
 
-class Surveyor(QSqlRelationalTableModel, QueryMixin):
+class Surveyor(QueryMixin, QSqlRelationalTableModel):
 
-    @classmethod
-    def create_database_tables(cls):
+    def create_database_tables(self):
         query = f"""
                    CREATE TABLE IF NOT EXISTS {SQL_TABLE_SURVEYORS} (
                        b_surveyor_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -545,27 +519,24 @@ class Surveyor(QSqlRelationalTableModel, QueryMixin):
                        name TEXT
                    )
                """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def drop_database_tables(cls):
+    def drop_database_tables(self):
         query = f"""
                        DROP TABLE IF EXISTS {SQL_TABLE_SURVEYORS}
                    """
-        cls.exec(query)
+        self.db_exec(query)
 
-    @classmethod
-    def dump_table(cls):
-        return cls.fetch(f"SELECT * FROM {SQL_TABLE_SURVEYORS} ORDER BY surveyor_id ASC")
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_SURVEYORS} ORDER BY surveyor_id ASC")
 
-    @classmethod
-    def load_table(cls, table_data: list):
+    def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
-        return cls.insert_bulk(SQL_TABLE_SURVEYORS, table_data)
+        return self.db_insert_bulk(SQL_TABLE_SURVEYORS, table_data)
 
-    def __init__(self):
-        super().__init__()
-        self.setTable(SQL_TABLE_SURVEYORS)
+    def __init__(self, db):
+        QueryMixin.__init__(self, db=db)
+        QSqlRelationalTableModel.__init__(self, db=db)
         self.setRelation(1, QSqlRelation(SQL_TABLE_SURVEYS, 'survey_id', 'name'))
         self.setRelation(2, QSqlRelation(SQL_TABLE_CONTACTS, 'contact_id', 'name'))
