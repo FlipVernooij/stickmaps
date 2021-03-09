@@ -137,6 +137,7 @@ class GlobalActions(ThreadWithProgressBar):
     def exit_application(self):
         action = QAction('Exit', self.parent_window)
         action.setShortcut(KEY_QUIT_APPLICATION)
+        action.setMenuRole(QAction.QuitRole)
 
         action.triggered.connect(self.parent_window.close)
         return action
@@ -146,20 +147,18 @@ class GlobalActions(ThreadWithProgressBar):
         action = QAction('Import from Mnemo', self.parent_window)
         action.setShortcut(KEY_IMPORT_MNEMO_CONNECT)
         action.triggered.connect(lambda: self.mnemo_connect_to_callback())
-        if self.worker_is_running(self.THREAD_MNEMO_CONNECTION):
-            action.setDisabled(True)
-        else:
-            action.setDisabled(False)
         return action
 
     def mnemo_connect_to_callback(self):
         self.parent_window.statusBar().showMessage('Mnemo import in progress', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+        self._disable_mnemo_actions()
         mnemo_dump = MnemoImporter(
             thread_action=MnemoImporter.ACTION_READ_DEVICE
         )
         self.worker_create_thread(
             thread_object=mnemo_dump,
-            progressparams={"title": "Mnemo import"}
+            progress_params={"title": "Mnemo import"},
+            on_finish=self._enable_mnemo_actions
         )
 
         self.worker_start(self.THREAD_MNEMO_CONNECTION)
@@ -168,10 +167,6 @@ class GlobalActions(ThreadWithProgressBar):
         action = QAction('Backup Mnemo (*.dmp file)', self.parent_window)
         action.setShortcut(KEY_IMPORT_MNEMO_DUMP)
         action.triggered.connect(lambda: self.mnemo_dump_callback())
-        if self.worker_is_running(self.THREAD_MNEMO_CONNECTION):
-            action.setDisabled(True)
-        else:
-            action.setDisabled(False)
         return action
 
     def mnemo_dump_callback(self):
@@ -198,7 +193,7 @@ class GlobalActions(ThreadWithProgressBar):
             )
             self.worker_create_thread(
                 thread_object=mnemo_dump,
-                progressparams={"title": "Mnemo backup"}
+                progress_params={"title": "Mnemo backup"}
             )
 
             self.worker_start(self.THREAD_MNEMO_CONNECTION)
@@ -210,7 +205,6 @@ class GlobalActions(ThreadWithProgressBar):
         return action
 
     def mnemo_load_dump_file_callback(self):
-
         try:
             file = QFileDialog(self.parent_window)
             settings = QSettings()
@@ -231,12 +225,20 @@ class GlobalActions(ThreadWithProgressBar):
                 )
                 self.worker_create_thread(
                     thread_object=mnemo,
-                    progressparams={"title": "Mnemo load *.dmp file"}
+                    progress_params={"title": "Mnemo load *.dmp file"}
                 )
 
                 self.worker_start(self.THREAD_MNEMO_CONNECTION)
         except Exception as err_mesg:
             ErrorDialog.show_error_key(self.parent_window, str(err_mesg))
+
+    def _disable_mnemo_actions(self):
+        menubar = self.parent_window.menuBar()
+        menubar.actions()[2].setEnabled(False)
+
+    def _enable_mnemo_actions(self):
+        menubar = self.parent_window.menuBar()
+        menubar.actions()[2].setEnabled(True)
 
     def edit_survey(self):
         action = QAction('Edit surveys', self.parent_window)

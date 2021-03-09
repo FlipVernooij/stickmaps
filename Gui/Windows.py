@@ -17,6 +17,7 @@ class MainApplicationWindow(QMainWindow):
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
 
+
         self.tree_view = None
         self.central_widget = MapView(self)
         self.setWindowTitle(MAIN_WINDOW_TITLE)

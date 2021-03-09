@@ -1,3 +1,5 @@
+from PySide6.QtGui import QAction
+
 from Gui.Actions import GlobalActions
 
 
@@ -34,5 +36,10 @@ class MainMenu:
         fm = mb.addMenu('Import')
         fm.addAction(actions.mnemo_connect_to())
         fm.addAction(actions.mnemo_load_dump_file())
+        fm.addAction(self._separator())
         fm.addAction(actions.mnemo_dump())
 
+    def _separator(self):
+        action = QAction()
+        action.setSeparator(True)
+        return action

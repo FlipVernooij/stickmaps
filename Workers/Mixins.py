@@ -52,6 +52,8 @@ class ThreadWithProgressBar:
         self.progress = None
         self.running_thread = None
 
+        self.on_finish = None
+
     def worker_is_running(self, thread_name: str) -> bool:
         if self.running_thread == thread_name:
             return True
@@ -59,7 +61,8 @@ class ThreadWithProgressBar:
 
     def worker_create_thread(self,
                              thread_object: QObject,
-                             progressparams: dict = {
+                             on_finish: None,
+                             progress_params: dict = {
                                  "title": "default title",
                                  "value": 0,
                                  "min": 0,
@@ -69,7 +72,9 @@ class ThreadWithProgressBar:
             ErrorDialog.show(f'{self.running_thread} is already running, we don\'t support multiple threads here')
             return
 
-        self.worker_create_progress_dialog(**progressparams)
+        self.on_finish = on_finish
+
+        self.worker_create_progress_dialog(**progress_params)
 
         self.thread = QThread()
         self.worker = thread_object
@@ -109,6 +114,9 @@ class ThreadWithProgressBar:
     def worker_finished(self):
         self.progress.close()
         self.thread.quit()
+        if self.on_finish is not None:
+            self.on_finish()
+
         self.running_thread = None
 
     def worker_error(self, error_key: str, error_exception: Exception = None):
