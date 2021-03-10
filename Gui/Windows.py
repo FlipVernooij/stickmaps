@@ -10,6 +10,7 @@ from Gui.Menus import MainMenu
 from Models.ItemModels import SurveyCollection, SectionItem
 from Models.TableModels import QueryMixin, SqlManager
 from Utils.Rendering import DragImage
+from Utils.Settings import Preferences
 
 
 class MainApplicationWindow(QMainWindow):
@@ -29,12 +30,11 @@ class MainApplicationWindow(QMainWindow):
         self.show()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-
-        if DEBUG is True:
+        if Preferences.get('debug', DEBUG, bool) is True:
             event.accept()
             return
 
-        response = QMessageBox.question(self, 'Quit STAPP application', 'Are you sure you want to quit?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        response = QMessageBox.question(self, 'Quit application', 'Are you sure you want to quit?', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if response == QMessageBox.Yes:
             self.write_settings()
             actions = GlobalActions(self)

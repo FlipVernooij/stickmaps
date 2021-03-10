@@ -1,11 +1,14 @@
-from PySide6.QtCore import QDateTime
-from PySide6.QtGui import Qt
+from PySide6.QtCore import QDateTime, QSysInfo, QSettings
+from PySide6.QtGui import Qt, QFont
 from PySide6.QtSql import QSqlTableModel
 from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, QMessageBox, QApplication, QFormLayout, \
-    QLineEdit, QDateTimeEdit, QTextEdit, QDialogButtonBox, QVBoxLayout, QDoubleSpinBox
+    QLineEdit, QDateTimeEdit, QTextEdit, QDialogButtonBox, QVBoxLayout, QDoubleSpinBox, QListWidget, \
+    QCheckBox, QComboBox, QSpinBox, QLabel, QPushButton
 
-from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME
+from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, MNEMO_DEVICE_DESCRIPTION, DEBUG, \
+    MNEMO_DEVICE_NAME, MNEMO_BAUDRATE, MNEMO_TIMEOUT
 from Models.TableModels import Section, Survey, Station
+from Utils.Settings import Preferences
 
 
 class ErrorDialog:
@@ -102,6 +105,282 @@ class ErrorDialog:
             QMessageBox.warning(None, APPLICATION_NAME, message)
         else:
             print(f"ERROR: {message}")
+
+
+class PreferencesDialog(QDialog):
+    FORMS = {
+        "General": {
+            "fields": [
+                {
+                    "label": "CPU architecture",
+                    "form_field": "label",
+                    "value": f'{QSysInfo.currentCpuArchitecture()}/{QSysInfo.buildCpuArchitecture()}'
+                },
+                {
+                    "label": "Compiled architecture",
+                    "form_field": "label",
+                    "value": f'{QSysInfo.buildAbi()}'
+                },
+                {
+                    "label": "Operating system",
+                    "form_field": "label",
+                    "value": f'{QSysInfo.prettyProductName()}'
+                },
+                {
+                    "label": "Kernel version",
+                    "form_field": "label",
+                    "value": f'{QSysInfo.kernelType()} - {QSysInfo.kernelVersion()}'
+                },
+                {
+                    "label": "Enable developer-mode",
+                    "info": "Enables some advanced configuration-options and debugging tools, USE WITH CARE!",
+                    "form_field": "check_box",
+                    "settings_key": "debug",
+                    "default_value": DEBUG
+
+                }
+            ]
+        },
+        "Mnemo": {
+            "fields": [
+                {
+                    "label": "Device name",
+                    "info": "This is the label used as the \"device name\" within your survey.",
+                    "form_field": "text_line",
+                    "settings_key": "mnemo_device_name",
+                    "default_value": MNEMO_DEVICE_NAME
+                },
+                {
+                    "label": "Device ",
+                    "info": "The device description to look for when scanning your usb devices for a Mnemo connection.",
+                    "form_field": "text_line",
+                    "settings_key": "mnemo_device_description",
+                    "default_value": MNEMO_DEVICE_DESCRIPTION,
+                    "dev_only": True
+                },
+                {
+                    "label": "Baudrate",
+                    "info": "The speed used to read out your Mnemo.",
+                    "form_field": "combo_box",
+                    "options": [
+                        "9600",
+                        "19200",
+                        "38400",
+                        "57600"
+                    ],
+                    "settings_key": "mnemo_baudrate",
+                    "default_value": MNEMO_BAUDRATE
+                },
+                {
+
+                    "label": "Timeout",
+                    "info": "Connection timeout",
+                    "form_field": "spinner",
+                    "min": 0,
+                    "max": 10,
+                    "settings_key": "mnemo_timeout",
+                    "default_value": MNEMO_TIMEOUT,
+                    "dev_only": True
+                },
+            ]
+        },
+        "Debug": {
+            "dev_only": True,
+            "fields": [
+                 {
+                    "label": "QSettings raw data",
+                    "form_field": "label_ml",
+                    "value_from_function": "_settings_as_string"
+                },
+                {
+                    "label": "Reset settings",
+                    "form_field": "button",
+                    "button_label": "reset",
+                    "action": "_reset_settings"
+                }
+            ]
+
+        }
+    }
+
+    def _settings_as_string(self, element: dict) -> str:
+        data = Preferences.get_everything()
+        r = []
+        for key in data:
+            r.append(f'\t{key} = {data[key]}')
+
+        return '\n'.join(r)
+
+    def _reset_settings(self, event):
+        response = QMessageBox.question(self, 'Reset ALL settings?', 'You can not undo this, continue?',
+                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if response == QMessageBox.No:
+            return
+
+        s = QSettings()
+        all_keys = s.allKeys()
+        for key in all_keys:
+            s.remove(key)
+
+        self.generate_form(self.current_form)
+
+
+
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        self.setWindowTitle('Preferences')
+        self.resize(800, 400)
+
+        self.form_changed = False
+        self.current_form = "General"
+
+        self.list_widget = QListWidget()
+        self.generate_chapters()
+
+
+        self.list_widget.setMaximumWidth(150)
+
+        layout = QHBoxLayout()
+
+        layout.addWidget(self.list_widget)
+
+        self.form_layout = QFormLayout()
+        self.form_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.form_layout.setLabelAlignment(Qt.AlignRight)
+        self.form_layout.setContentsMargins(10, 0, 20, 0)
+        self.generate_form(self.current_form)
+        layout.addLayout(self.form_layout)
+
+        o_layout = QVBoxLayout()
+        o_layout.addLayout(layout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Close)
+        buttons.accepted.connect(self.save)
+        buttons.rejected.connect(self.close)
+        o_layout.addWidget(buttons)
+
+        self.setLayout(o_layout)
+
+    def save(self):
+        for field in self.FORMS[self.current_form]['fields']:
+            if 'settings_key' in field and 'form_element' in field:
+                Preferences.set(field['settings_key'], self.get_field_value(field))
+
+        self.generate_chapters()
+        self.form_changed = False
+
+    def close(self, event=None):
+        if self.form_changed is True:
+            response = QMessageBox.question(self, 'Ignore unsaved changes?', 'You have unsaved changes, continue?',
+                                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if response == QMessageBox.No:
+                return
+
+        super().close()
+
+    def chapter_clicked(self, event):
+        if self.form_changed is True:
+            response = QMessageBox.question(self, 'Ignore unsaved changes?', 'You have unsaved changes, continue?',
+                                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if response == QMessageBox.No:
+                return
+
+        self.form_changed = False
+        self.current_form = event.text()
+
+
+        self.generate_form(self.current_form)
+
+    def field_changed(self, arg=None):
+        self.form_changed = True
+
+    def generate_chapters(self):
+        while self.list_widget.count() > 0:
+            self.list_widget.takeItem(self.list_widget.count()-1)
+
+        for item in self.FORMS.keys():
+            if 'dev_only' in self.FORMS[item] and self.FORMS[item]['dev_only'] is True:
+                if Preferences.get('debug', DEBUG, bool) is False:
+                    continue
+
+            self.list_widget.addItem(item)
+
+        self.list_widget.itemClicked.connect(self.chapter_clicked)
+
+    def generate_form(self, key):
+        while self.form_layout.rowCount() > 0:
+            self.form_layout.removeRow(self.form_layout.rowCount() - 1)
+
+        for i, element in enumerate(self.FORMS[key]['fields']):
+            if 'default_value' in element:
+                element['default_value'] = Preferences.get(element['settings_key'], element['default_value'])
+            self.FORMS[key]['fields'][i]['form_element'] = self.get_field(element)
+            label = QLabel(element['label'])
+            label.setMinimumWidth(150)
+            if 'info' in element:
+                label.setToolTip(f"{element['info']}")
+
+            self.form_layout.addRow(label, self.FORMS[key]['fields'][i]['form_element'])
+
+    def get_field(self, element: dict):
+        f = element['form_field']
+        if f == 'text_line':
+            el = QLineEdit(self)
+            el.setText(str(element['default_value']))
+            el.setClearButtonEnabled(True)
+            el.textChanged.connect(self.field_changed)
+        elif f == 'check_box':
+            el = QCheckBox(self)
+            el.setChecked(bool(int(element['default_value'])))
+            el.stateChanged.connect(self.field_changed)
+        elif f == 'combo_box':
+            el = QComboBox(self)
+            el.addItems(element['options'])
+            el.setCurrentText(str(element['default_value']))
+            el.currentTextChanged.connect(self.field_changed)
+        elif f == 'spinner':
+            el = QSpinBox(self)
+            el.setValue(int(element['default_value']))
+            el.setMinimum(element['min'])
+            el.setMaximum(element['max'])
+            el.valueChanged.connect(self.field_changed)
+        elif f == 'button':
+            el = QPushButton(element['button_label'])
+            el.clicked.connect(getattr(self, element['action']))
+        elif f == 'label':
+            if "value_from_function" in element:
+                element['value'] = getattr(self, element["value_from_function"])(element)
+            el = QLabel(element['value'])
+        elif f == 'label_ml':
+            if "value_from_function" in element:
+                element['value'] = getattr(self, element["value_from_function"])(element)
+            el = QLabel(element['value'])
+            el.setWordWrap(True)
+        else:
+            raise AttributeError(f'Unknown form_field in preferences plain: "{f}"')
+
+        if 'dev_only' in element and element['dev_only'] is True:
+            if Preferences.get('debug', DEBUG, bool) is False:
+                el.setDisabled(True)
+
+        el.setMinimumWidth(200)
+
+        return el
+
+    def get_field_value(self, element: dict):
+        f = element['form_field']
+        e = element['form_element']
+        if f == 'text_line':
+            return e.text()
+        elif f == 'check_box':
+            return int(e.isChecked())
+        elif f == 'combo_box':
+            return e.currentText()
+        elif f == 'spinner':
+            return e.value()
+        else:
+            raise AttributeError(f'Unknown form_field in preferences plain: "{f}"')
 
 
 class EditSurveysDialog(QDialog):

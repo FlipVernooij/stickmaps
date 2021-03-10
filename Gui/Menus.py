@@ -22,7 +22,11 @@ class MainMenu:
         fm.addAction(actions.open())
         fm.addAction(actions.save())
         fm.addAction(actions.save_as())
+        fm.addAction(self._separator())
+        fm.addAction(actions.preferences())
+        fm.addAction(self._separator())
         fm.addAction(actions.exit_application())
+
 
     def set_edit_menu(self):
         actions = GlobalActions(self.parent_window)

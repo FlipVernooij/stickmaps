@@ -61,7 +61,7 @@ class ThreadWithProgressBar:
 
     def worker_create_thread(self,
                              thread_object: QObject,
-                             on_finish: None,
+                             on_finish=None,
                              progress_params: dict = {
                                  "title": "default title",
                                  "value": 0,

@@ -22,6 +22,7 @@ if __name__ == '__main__':
         app = MainApplicationWindow()
 
 
+
         sys.exit(parent_app.exec_())
 
 

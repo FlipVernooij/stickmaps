@@ -7,13 +7,14 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialog, QProgressDialog
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, APPLICATION_FILE_EXTENSION, \
-    MAIN_WINDOW_TITLE
+    MAIN_WINDOW_TITLE, MNEMO_BAUDRATE, MNEMO_TIMEOUT
 from Config.KeyboardShortcuts import KEY_IMPORT_MNEMO_CONNECT, KEY_IMPORT_MNEMO_DUMP_FILE, KEY_QUIT_APPLICATION, \
-    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW, KEY_IMPORT_MNEMO_DUMP
+    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW, KEY_IMPORT_MNEMO_DUMP, KEY_PREFERENCES
 from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditSectionsDialog, EditSectionDialog, EditStationsDialog, \
-    EditStationDialog
+    EditStationDialog, PreferencesDialog
 from Gui.Dialogs import EditSurveysDialog
 from Importers.Mnemo import MnemoImporter
+from Utils.Settings import Preferences
 from Utils.Storage import SurveyData
 from Workers.Mixins import ThreadWithProgressBar
 
@@ -134,6 +135,17 @@ class GlobalActions(ThreadWithProgressBar):
         else:
             self.parent_window.statusBar().showMessage('File NOT saved.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
+    def preferences(self):
+        action = QAction('Preferences', self.parent_window)
+        action.setMenuRole(QAction.PreferencesRole)
+        action.setShortcut(KEY_PREFERENCES)
+        action.triggered.connect(lambda: self.preferences_callback())
+        return action
+
+    def preferences_callback(self):
+        prefs = PreferencesDialog(self.parent_window)
+        prefs.show()
+
     def exit_application(self):
         action = QAction('Exit', self.parent_window)
         action.setShortcut(KEY_QUIT_APPLICATION)
@@ -153,6 +165,8 @@ class GlobalActions(ThreadWithProgressBar):
         self.parent_window.statusBar().showMessage('Mnemo import in progress', MAIN_WINDOW_STATUSBAR_TIMEOUT)
         self._disable_mnemo_actions()
         mnemo_dump = MnemoImporter(
+            baudrate=int(Preferences.get('mnemo_baudrate', MNEMO_BAUDRATE)),
+            timeout=int(Preferences.get('mnemo_timeout', MNEMO_TIMEOUT)),
             thread_action=MnemoImporter.ACTION_READ_DEVICE
         )
         self.worker_create_thread(
@@ -188,6 +202,8 @@ class GlobalActions(ThreadWithProgressBar):
             self.parent_window.statusBar().showMessage('Mnemo backup in progress', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
             mnemo_dump = MnemoImporter(
+                baudrate=int(Preferences.get('mnemo_baudrate', MNEMO_BAUDRATE)),
+                timeout=int(Preferences.get('mnemo_timeout', MNEMO_TIMEOUT)),
                 thread_action=MnemoImporter.ACTION_WRITE_DUMP,
                 out_file=file_name
             )

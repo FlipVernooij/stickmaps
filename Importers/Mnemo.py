@@ -4,21 +4,19 @@ import time
 from datetime import datetime
 
 import serial
+from PySide6.QtCore import QSettings
 from serial.tools import list_ports
 
-from Config.Constants import DEVICE_NAME_MNEMO
+from Config.Constants import MNEMO_DEVICE_NAME, MNEMO_DEVICE_DESCRIPTION
 from Models.TableModels import Survey, Section, Station, SqlManager
+from Utils.Settings import Preferences
 from Workers.Mixins import WorkerMixin
 
 
 class MnemoImporter(WorkerMixin):
 
-
-
-    DEVICE_DESCRIPTION = "MCP2221 USB-I2C/UART Combo"
-
     # dump file uses "LINE_BIT_COUNT" bits for every line.
-    LINE_BIT_COUNT = 16
+    LINE_BYTE_COUNT = 16
 
     ACTION_WRITE_DUMP = 1
     ACTION_READ_DUMP = 2
@@ -29,7 +27,6 @@ class MnemoImporter(WorkerMixin):
             device=None,
             baudrate=9600,
             timeout=1,
-            verbose=0,
             thread_action=None,
             in_file=None,
             out_file=None
@@ -39,7 +36,6 @@ class MnemoImporter(WorkerMixin):
         self.device = device
         self.baudrate = baudrate
         self.timeout = timeout
-        self.verbose = verbose
 
         self.import_list = None
         self.survey = None
@@ -93,10 +89,11 @@ class MnemoImporter(WorkerMixin):
         raise AttributeError(f'Unknown threadAction: {self.tread_action}')
 
     def get_device_location(self, device=None):
+
         if device is None:
             ports = list_ports.comports()
             for port in ports:
-                if port.description == self.DEVICE_DESCRIPTION:
+                if port.description == Preferences.get('mnemo_device_description', MNEMO_DEVICE_DESCRIPTION):
                     device = port.device
 
         if not device:
@@ -191,7 +188,7 @@ class MnemoImporter(WorkerMixin):
         return survey_id
 
     def get_survey(self):
-        survey_id = self.sql_manager().factor(Survey).insert_survey(device_name=DEVICE_NAME_MNEMO)
+        survey_id = self.sql_manager().factor(Survey).insert_survey(device_name=Preferences.get("mnemo_device_name", MNEMO_DEVICE_NAME))
         index = 6
         while True:
             index = self.get_section(index, survey_id)
@@ -220,11 +217,11 @@ class MnemoImporter(WorkerMixin):
         while True:
             section_reference_id, length_in, azimuth_in = self.get_station(index, station_reference_id, survey_id, section_id, length_in, azimuth_in)
             station_reference_id = station_reference_id + 1
-            index = index + self.LINE_BIT_COUNT
+            index = index + self.LINE_BYTE_COUNT
             if section_reference_id != mnemo_section_number:
                 index = index + 1
                 break
-            if index + self.LINE_BIT_COUNT > len(self.import_list):
+            if index + self.LINE_BYTE_COUNT > len(self.import_list):
                 break
         return index
 

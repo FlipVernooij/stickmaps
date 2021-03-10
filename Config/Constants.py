@@ -22,7 +22,10 @@ TREE_DARK_ICON_SURVEY = 'Assets/surveyIcon.png'
 TREE_DARK_ICON_SECTION = 'Assets/sectionIcon.png'
 TREE_DARK_ICON_STATION = 'Assets/pointIcon.png'
 
-DEVICE_NAME_MNEMO = "Mnemo"
+MNEMO_DEVICE_NAME = "Mnemo"
+MNEMO_DEVICE_DESCRIPTION = "MCP2221 USB-I2C/UART Combo"
+MNEMO_BAUDRATE = 9600
+MNEMO_TIMEOUT = 1
 
 #SQL_DB_LOCATION = ":memory:"
 SQL_DB_LOCATION = "/tmp/stickmaps.sql"
@@ -33,3 +36,5 @@ SQL_TABLE_STATIONS = "stations"
 SQL_TABLE_CONTACTS = "contacts"
 SQL_TABLE_EXPLORERS = "explorers"
 SQL_TABLE_SURVEYORS = "surveyors"
+
+# preference defaults
