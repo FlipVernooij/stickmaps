@@ -225,7 +225,6 @@ class PreferencesDialog(QDialog):
         self.generate_form(self.current_form)
 
 
-
     def __init__(self, parent):
         super().__init__(parent)
 

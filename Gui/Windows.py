@@ -1,14 +1,14 @@
 from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData
 from PySide6.QtGui import QIcon, Qt, QCloseEvent, QPalette, QDrag
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
-    QAbstractItemView, QMenu, QScrollArea
+    QAbstractItemView, QMenu, QLabel, QVBoxLayout
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
     MAIN_WINDOW_ICON, DEBUG
 from Gui.Actions import TreeActions, GlobalActions
 from Gui.Menus import MainMenu
 from Models.ItemModels import SurveyCollection, SectionItem
-from Models.TableModels import QueryMixin, SqlManager
+from Models.TableModels import SqlManager
 from Utils.Rendering import DragImage
 from Utils.Settings import Preferences
 
@@ -17,10 +17,18 @@ class MainApplicationWindow(QMainWindow):
 
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
-
+        self.debug_console = None
+        if Preferences.get('debug', DEBUG, bool) is True:
+            d_dock = QDockWidget('Debug console', self)
+            d_dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
+            d_dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea | Qt.RightDockWidgetArea)
+            self.debug_console = QWidget()
+            self.debug_console.show()
+            d_dock.setWidget(self.debug_console)
+            self.addDockWidget(Qt.BottomDockWidgetArea, d_dock)
 
         self.tree_view = None
-        self.central_widget = MapView(self)
+        self.map_view = MapView(self)
         self.setWindowTitle(MAIN_WINDOW_TITLE)
         self.setWindowIcon(QIcon(MAIN_WINDOW_ICON))
         self.sql_manager = self.init_database()
@@ -47,7 +55,7 @@ class MainApplicationWindow(QMainWindow):
     def setup_interface(self):
         main_menu = MainMenu(self)
         main_menu.generate()
-        self.setCentralWidget(self.central_widget)
+        self.setCentralWidget(self.map_view)
         dock = QDockWidget("Survey data", self)
         dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
         dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
@@ -138,9 +146,10 @@ class SurveyOverview(QTreeView):
         mime.setProperty('section_id', item.section_id)
         mime.setProperty('section_name', item.text())
         mime.setText(item.text())
-        pixmap = DragImage(item.section_id, item.text())
-        drag.setPixmap(pixmap.get_pixmap())
 
+        pixmap = DragImage(section_id=item.section_id, section_name=item.text())
+        drag.setPixmap(pixmap.get_pixmap())
+        drag.setHotSpot(pixmap.get_cursor_location())
         drag.setMimeData(mime)
         drag.exec_(Qt.CopyAction)
         event.accept()
@@ -151,7 +160,7 @@ class MapView(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
         pallete = QPalette()
-        pallete.setColor(QPalette.Window, Qt.white)
+        #pallete.setColor(QPalette.Window, Qt.white)
         self.setAutoFillBackground(True)
         self.setPalette(pallete)
         self.setAcceptDrops(True)
@@ -174,6 +183,14 @@ class MapView(QWidget):
         survey_id = mime.property('survey_id')
         section_id = mime.property('section_id')
         section_name = mime.property('section_name')
+
+        layout = QVBoxLayout()
+        pixmap = DragImage(section_id=section_id, section_name=section_name)
+        l = QLabel('img')
+        l.setPixmap(pixmap.get_pixmap())
+        layout.addWidget(l)
+        self.setLayout(layout)
+
         event.accept()
         return
 
