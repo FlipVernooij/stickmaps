@@ -265,9 +265,13 @@ class DebugConsole(QWidget):
             'INFO': 'blue',
             'WARNING': 'yellow',
             'ERROR': 'orange',
-            'CRITICAL': 'red'
+            'CRITICAL': 'red',
+            'stdout': 'purple'
         }
         r = record
+        if r.name == 'stdout':
+            return f'<label style="color:{color_lookup[r.name]}">{r.name}</label> # <strong>{r.msg}</strong>'
+
         return f'<label style="color:{color_lookup[r.levelname]}">{r.levelname} - {r.name}</label> -> {r.filename}:{r.funcName}():{r.lineno} # <strong>{r.msg}</strong>'
 
     def clear_console(self, event):

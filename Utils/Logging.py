@@ -19,8 +19,13 @@ class LogStream(QObject):
     def fileno(self):
         -1
 
+    def write(self, mesg: str):
+        if mesg.strip() != '':
+            log = logging.LogRecord(name='stdout', level=logging.INFO, msg=mesg, pathname=None, lineno=None, args=None, exc_info=None)
+            self.send(log)
+
     def send(self, record: logging.LogRecord):
-        if self.is_disabled:
+        if self.is_enabled is False:
             return
 
         while self.signalsBlocked():
