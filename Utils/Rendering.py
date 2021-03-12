@@ -107,6 +107,8 @@ class DragImage(CalcMixin):
 
     MAP_STATION_DOT = 4
 
+    MAP_LINE_COLOR = Qt.gray
+
     def __init__(self, section_id: int, section_name: str, connection_name: str = None):
         super().__init__()
         self.cursor_location = QPointF(0, 0)
@@ -126,9 +128,8 @@ class DragImage(CalcMixin):
         self.painter = QPainter()
         self.painter.begin(self.pixmap)
         self.painter.setRenderHint(QPainter.Antialiasing)
-        #self.painter.setRenderHint(QPainter.An)
 
-        self.pen = QPen(Qt.white, self.MAP_LINE_WIDTH)
+        self.pen = QPen(self.MAP_LINE_COLOR, self.MAP_LINE_WIDTH)
 
         self.painter.setPen(self.pen)
 
@@ -146,17 +147,15 @@ class DragImage(CalcMixin):
                 self.painter.setPen(self.pen)
                 self.painter.setBrush(Qt.red)
                 self.painter.drawEllipse(s, self.MAP_STATION_DOT, self.MAP_STATION_DOT)
-                self.pen.setColor(Qt.white)
+                self.pen.setColor(self.MAP_LINE_COLOR)
                 self.painter.setPen(self.pen)
-                self.painter.setBrush(Qt.white)
+                self.painter.setBrush(self.MAP_LINE_COLOR)
             self.painter.drawEllipse(e, self.MAP_STATION_DOT, self.MAP_STATION_DOT)
-
 
 
         self.painter.end()
 
     def get_pixmap(self):
-        #return QPixmap(APPLICATION_ICON )
         return self.pixmap
 
     def get_cursor_location(self):

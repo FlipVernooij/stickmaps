@@ -1,7 +1,10 @@
+import logging
+
 from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData
 from PySide6.QtGui import QIcon, Qt, QCloseEvent, QPalette, QDrag
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
-    QAbstractItemView, QMenu, QLabel, QVBoxLayout
+    QAbstractItemView, QMenu, QLabel, QVBoxLayout, QScrollArea, QSizePolicy, QTextBrowser, QPushButton, QComboBox, \
+    QButtonGroup, QHBoxLayout
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
     MAIN_WINDOW_ICON, DEBUG
@@ -9,6 +12,7 @@ from Gui.Actions import TreeActions, GlobalActions
 from Gui.Menus import MainMenu
 from Models.ItemModels import SurveyCollection, SectionItem
 from Models.TableModels import SqlManager
+from Utils.Logging import LogStream
 from Utils.Rendering import DragImage
 from Utils.Settings import Preferences
 
@@ -18,15 +22,13 @@ class MainApplicationWindow(QMainWindow):
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
         self.debug_console = None
-        if Preferences.get('debug', DEBUG, bool) is True:
-            d_dock = QDockWidget('Debug console', self)
-            d_dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
-            d_dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea | Qt.RightDockWidgetArea)
-            self.debug_console = QWidget()
-            self.debug_console.show()
-            d_dock.setWidget(self.debug_console)
-            self.addDockWidget(Qt.BottomDockWidgetArea, d_dock)
-
+        self.debug_console = QDockWidget('Debug console', self)
+        self.debug_console.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
+        self.debug_console.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea | Qt.RightDockWidgetArea)
+        inner = DebugConsole(self)
+        self.debug_console.setWidget(inner)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.debug_console)
+        self.toggle_debug_console(Preferences.get('debug', DEBUG, bool))
         self.tree_view = None
         self.map_view = MapView(self)
         self.setWindowTitle(MAIN_WINDOW_TITLE)
@@ -84,6 +86,14 @@ class MainApplicationWindow(QMainWindow):
         self.settings.endGroup()
 
         self.settings.setValue('SaveFile/is_changed', False)
+
+    def toggle_debug_console(self, show: bool = True):
+        if show is True:
+            LogStream.enable()
+            self.debug_console.show()
+        else:
+            self.debug_console.hide()
+            LogStream.disable()
 
 
 class SurveyOverview(QTreeView):
@@ -155,19 +165,31 @@ class SurveyOverview(QTreeView):
         event.accept()
 
 
-class MapView(QWidget):
+class MapView(QScrollArea):
 
     def __init__(self, parent):
         super().__init__(parent)
-        pallete = QPalette()
-        #pallete.setColor(QPalette.Window, Qt.white)
         self.setAutoFillBackground(True)
-        self.setPalette(pallete)
+        self.setBackgroundRole(QPalette.Light)
         self.setAcceptDrops(True)
-
+        self.horizontalScrollBar()
+        self.verticalScrollBar()
 
         self.show()
 
+
+    # def event(self, event):
+    #     if event.type() not in [event.Type.Enter]:
+    #         print('scrolling')
+    #     event.accept()
+
+    def wheelEvent(self, event) -> None:
+        event.accept()
+        ##event.
+        #QWheelEvent
+        print('wheel event')
+
+    # Drag & drop event
     def dragEnterEvent(self, event) -> None:
         event.accept()
 
@@ -184,12 +206,12 @@ class MapView(QWidget):
         section_id = mime.property('section_id')
         section_name = mime.property('section_name')
 
-        layout = QVBoxLayout()
         pixmap = DragImage(section_id=section_id, section_name=section_name)
-        l = QLabel('img')
-        l.setPixmap(pixmap.get_pixmap())
-        layout.addWidget(l)
-        self.setLayout(layout)
+        image = QLabel('img')
+        image.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        image.setScaledContents(True)
+        image.setPixmap(pixmap.get_pixmap())
+        self.setWidget(image)
 
         event.accept()
         return
@@ -197,3 +219,60 @@ class MapView(QWidget):
     @classmethod
     def dropAction(cls, item):
         foo = 1
+
+
+class DebugConsole(QWidget):
+
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        self.console = QTextBrowser(self)
+        self.clear_button = QPushButton(self)
+        self.clear_button.setText('clear')
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.console)
+
+
+        self.clear_button.clicked.connect(self.clear_console)
+
+        self.log_level_combo = QComboBox(self)
+        self.log_level_combo.addItems([
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "CRITICAL"
+        ])
+        self.log_level_combo.setCurrentText(logging.getLevelName(logging.root.level))
+        self.log_level_combo.currentTextChanged.connect(self.set_loglevel)
+        b_group = QHBoxLayout()
+        b_group.addWidget(self.log_level_combo)
+        b_group.addWidget(self.clear_button)
+        layout.addLayout(b_group)
+        self.setLayout(layout)
+
+        LogStream.stdout().received.connect(self.stdout_received)
+
+    def stdout_received(self, record: logging.LogRecord):
+        mesg = self.format_record(record)
+        all_text = self.console.toHtml()
+        self.console.setHtml(mesg+all_text)
+
+    def format_record(self, record):
+        color_lookup = {
+            'DEBUG': 'green',
+            'INFO': 'blue',
+            'WARNING': 'yellow',
+            'ERROR': 'orange',
+            'CRITICAL': 'red'
+        }
+        r = record
+        return f'<label style="color:{color_lookup[r.levelname]}">{r.levelname} - {r.name}</label> -> {r.filename}:{r.funcName}():{r.lineno} # <strong>{r.msg}</strong>'
+
+    def clear_console(self, event):
+        self.console.setHtml('')
+
+    def set_loglevel(self, loglevel: str):
+        logging.getLogger().setLevel(getattr(logging, loglevel))
+        self.clear_console(None)

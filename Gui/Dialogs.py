@@ -227,7 +227,7 @@ class PreferencesDialog(QDialog):
 
     def __init__(self, parent):
         super().__init__(parent)
-
+        self.main_window = parent
         self.setWindowTitle('Preferences')
         self.resize(800, 400)
 
@@ -267,6 +267,8 @@ class PreferencesDialog(QDialog):
                 Preferences.set(field['settings_key'], self.get_field_value(field))
 
         self.generate_chapters()
+        self.main_window.toggle_debug_console(Preferences.get('debug', DEBUG, bool))
+
         self.form_changed = False
 
     def close(self, event=None):
