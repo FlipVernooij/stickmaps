@@ -5,7 +5,7 @@ from PySide6.QtCore import QPointF
 from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, Qt
 
 from Models.TableModels import Station, SqlManager
-
+from Utils.Logging import Track
 
 
 class CalcMixin:
@@ -154,6 +154,89 @@ class DragImage(CalcMixin):
 
 
         self.painter.end()
+
+    def get_pixmap(self):
+        return self.pixmap
+
+    def get_cursor_location(self):
+        return self.cursor_location.toPoint()
+
+
+class ImageTest(CalcMixin):
+
+    LOOP_TIMES = 1
+
+    SQL_MANAGER_CONNECTION_NAME = 'ImageTest'
+
+    MAP_PADDING = 50
+
+    MAP_LINE_WIDTH = 4
+
+    MAP_STATION_DOT = 4
+
+    MAP_LINE_COLOR = Qt.gray
+
+    def __init__(self, section_id: int, section_name: str, connection_name: str = None):
+        self.log = logging.getLogger(__name__)
+        super().__init__()
+        self.sql_manager = SqlManager(
+            connection_name if connection_name is not None else self.SQL_MANAGER_CONNECTION_NAME
+
+        )
+        self.section_id = section_id
+        self.section_name = section_name
+        self.stations = []
+        Track.timer_start('total')
+        Track.timer_start('sql')
+        for i in range(self.LOOP_TIMES):
+            self.stations.extend(self.sql_manager.factor(Station).get_stations_for_section(section_id))
+
+        self.log.info(f'Drawing {len(self.stations)} stations to single pixmap')
+        self.log.info(f'SQL run for {Track.timer_end("sql")}')
+
+        Track.timer_start('path')
+        path_data = self.get_path(self.stations)
+        self.log.info(f'PATHING run for {Track.timer_end("path")}')
+
+        Track.timer_start('init')
+        self.pixmap = QPixmap(
+            path_data['grid']['width'] + self.MAP_PADDING,
+            path_data['grid']['height'] + self.MAP_PADDING
+        )
+
+        self.pixmap.fill(Qt.transparent)
+        self.painter = QPainter()
+        self.painter.begin(self.pixmap)
+        self.painter.setRenderHint(QPainter.Antialiasing)
+
+        self.pen = QPen(self.MAP_LINE_COLOR, self.MAP_LINE_WIDTH)
+
+        self.painter.setPen(self.pen)
+        self.log.info(f'Init pixmap took: {Track.timer_end("init")}')
+        Track.timer_start('draw')
+        for i, line in enumerate(path_data['path']):
+            s = QPointF(line['s'].x(), line['s'].y())
+            e = QPointF(line['e'].x(), line['e'].y())
+            s.setX(self.get_plane_x(s.x(), path_data['grid']) + (self.MAP_PADDING / 2))
+            s.setY(self.get_plane_y(s.y(), path_data['grid']) + (self.MAP_PADDING / 2))
+            e.setX(self.get_plane_x(e.x(), path_data['grid']) + (self.MAP_PADDING / 2))
+            e.setY(self.get_plane_y(e.y(), path_data['grid']) + (self.MAP_PADDING / 2))
+            self.painter.drawLine(s, e)
+            if i == 0:
+                self.cursor_location = s
+                self.pen.setColor(Qt.red)
+                self.painter.setPen(self.pen)
+                self.painter.setBrush(Qt.red)
+                self.painter.drawEllipse(s, self.MAP_STATION_DOT, self.MAP_STATION_DOT)
+                self.pen.setColor(self.MAP_LINE_COLOR)
+                self.painter.setPen(self.pen)
+                self.painter.setBrush(self.MAP_LINE_COLOR)
+            self.painter.drawEllipse(e, self.MAP_STATION_DOT, self.MAP_STATION_DOT)
+        self.log.info(f'DRAW run for {Track.timer_end("draw")}')
+        Track.timer_start('end')
+        self.painter.end()
+        self.log.info(f'End painter took: {Track.timer_end("end")}')
+        self.log.info(f'Total render took: {Track.timer_end("total")}')
 
     def get_pixmap(self):
         return self.pixmap

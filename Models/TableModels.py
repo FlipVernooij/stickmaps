@@ -202,7 +202,6 @@ class SqlManager:
             raise ConnectionError(f"Database Error: {self.db.lastError()}")
 
 
-
 class Survey(QueryMixin, QSqlTableModel):
 
     def create_database_tables(self):
@@ -210,6 +209,7 @@ class Survey(QueryMixin, QSqlTableModel):
             CREATE TABLE IF NOT EXISTS surveys (
                 survey_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_name TEXT,
+                device_properties TEXT,
                 survey_datetime TEXT,
                 survey_name TEXT,
                 survey_comment TEXT
@@ -226,13 +226,14 @@ class Survey(QueryMixin, QSqlTableModel):
     def get_survey(self, survey_id) -> dict:
         return self.db_get(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
 
-    def insert_survey(self, device_name: str) -> int:
+    def insert_survey(self, device_name: str, device_properties: dict = {}) -> int:
         self.select()
         # do not set break-points here, you will start inserting multiple records per break-point.
         record = self.record()
         now = datetime.now()
         record.setValue('survey_id', None)
         record.setValue('device_name', device_name)
+        record.setValue('device_properties', json.dumps(device_properties))
         record.setValue('survey_datetime', now.timestamp())
         record.setValue('survey_name', now.strftime('%c'))
         record.setValue('survey_comment', '')
@@ -276,6 +277,7 @@ class Section(QueryMixin, QSqlTableModel):
                 section_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 survey_id INTEGER,
                 section_reference_id INTEGER,
+                direction TEXT,
                 device_properties TEXT,
                 section_name TEXT,
                 section_comment TEXT
@@ -292,7 +294,7 @@ class Section(QueryMixin, QSqlTableModel):
     def get_section(self, section_id) -> dict:
         return self.db_get(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
 
-    def insert_section(self, survey_id: int, section_reference_id: int, device_properties: dict) -> int:
+    def insert_section(self, survey_id: int, section_reference_id: int, direction: str, device_properties: dict) -> int:
         self.select()
         # do not set breakstations here, you will start inserting multiple records per breakstation.
         record = self.record()
@@ -300,6 +302,7 @@ class Section(QueryMixin, QSqlTableModel):
         record.setValue('section_id', None)
         record.setValue('survey_id', survey_id)
         record.setValue('section_reference_id', section_reference_id)
+        record.setValue('direction', direction)
         record.setValue('device_properties', json.dumps(device_properties))
         record.setValue('section_name', f'Section {section_reference_id}')
         record.setValue('section_comment', '')

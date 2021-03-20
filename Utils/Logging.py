@@ -1,8 +1,29 @@
 import logging
 import sys
+from datetime import datetime
 from time import sleep
 
 from PySide6.QtCore import QObject, Signal
+
+
+class Track():
+
+    TIME_START = {}
+
+    @classmethod
+    def timer_start(cls, name='default'):
+        if name in cls.TIME_START.keys():
+            raise Exception(f'timer_start: name {name} already running, call times_stop() first')
+        cls.TIME_START[name] = datetime.now().timestamp()
+
+    @classmethod
+    def timer_end(cls, name='default'):
+        end = datetime.now().timestamp()
+        if name not in cls.TIME_START.keys():
+            raise Exception('timer_end: name {name} is not running, call times_start() first')
+        start = cls.TIME_START[name]
+        del cls.TIME_START[name]
+        return end - start
 
 
 class LogStream(QObject):

@@ -1,13 +1,13 @@
+import logging
 import os
-import sys
+import traceback
 import time
 from datetime import datetime
 
 import serial
-from PySide6.QtCore import QSettings
 from serial.tools import list_ports
 
-from Config.Constants import MNEMO_DEVICE_NAME, MNEMO_DEVICE_DESCRIPTION
+from Config.Constants import MNEMO_DEVICE_NAME, MNEMO_DEVICE_DESCRIPTION, MNEMO_CYCLE_COUNT
 from Models.TableModels import Survey, Section, Station, SqlManager
 from Utils.Settings import Preferences
 from Workers.Mixins import WorkerMixin
@@ -22,12 +22,29 @@ class MnemoImporter(WorkerMixin):
     ACTION_READ_DUMP = 2
     ACTION_READ_DEVICE = 3
 
+    SURVEY_IN = 'IN'
+    SURVEY_OUT = 'OUT'
+    SURVEY_UNKNOWN = 'DIRECTION UNKNOWN'
+
+    SURVEY_DIRECTIONS = [
+        SURVEY_IN, SURVEY_OUT, SURVEY_UNKNOWN
+    ]
+
+## typeshot CSA, CSB, STD, EOC
+    SURVEY_MODE_BASIC = 'CSA'
+    SURVEY_MODE_ONE_GO = 'CSB'
+    SURVEY_MODE_ADVANCED = 'STD'
+    SURVEY_MODE_EXIT = 'EOC'
+
+    SURVEY_MODES = [SURVEY_MODE_BASIC, SURVEY_MODE_ONE_GO, SURVEY_MODE_ADVANCED, SURVEY_MODE_EXIT]
+
     def __init__(
             self,
+            thread_action: str = None,
             device=None,
             baudrate=9600,
             timeout=1,
-            thread_action=None,
+
             in_file=None,
             out_file=None
 
@@ -41,15 +58,14 @@ class MnemoImporter(WorkerMixin):
         self.survey = None
         self.sections = []
         self.stations = []
+        self.byte_index = -1  # we update the index before returning it.
 
         self.tread_action = thread_action
         self.out_file = out_file
         self.in_file = in_file
         self.last_error = None
 
-
     def run(self):
-        ### yeah... mmm I need to get the manager to the mixin,... but erhmmm...
         self.set_sql_manager('MNEMO_WORKER_THREAD')
         if self.tread_action == self.ACTION_WRITE_DUMP:
             try:
@@ -58,7 +74,7 @@ class MnemoImporter(WorkerMixin):
                 self.s_task_label.emit('Done')
                 self.finished()
             except Exception as error:
-                self.s_error.emit(str(error), self.last_error)
+                self.s_error.emit(str(error), error if self.last_error is None else self.last_error)
                 self.finished()
             return
 
@@ -70,7 +86,7 @@ class MnemoImporter(WorkerMixin):
                 self.s_reload_treeview.emit(survey_id)
                 self.finished()
             except Exception as error:
-                self.s_error.emit(str(error), self.last_error)
+                self.s_error.emit(str(error), error if self.last_error is None else self.last_error)
                 self.finished()
             return
 
@@ -82,14 +98,15 @@ class MnemoImporter(WorkerMixin):
                 self.s_task_label.emit('Done')
                 self.finished()
             except Exception as error:
-                self.s_error.emit(str(error), self.last_error)
+                self.s_error.emit(str(error), error if self.last_error is None else self.last_error)
                 self.finished()
+                raise error
             return
 
-        raise AttributeError(f'Unknown threadAction: {self.tread_action}')
+        self.s_error.emit(f'Unknown threadAction: {self.tread_action}')
+        self.finished()
 
     def get_device_location(self, device=None):
-
         if device is None:
             ports = list_ports.comports()
             for port in ports:
@@ -103,7 +120,7 @@ class MnemoImporter(WorkerMixin):
 
     def read_from_device(self):
         try:
-            self.s_task_label.emit('Connection to device')
+            self.s_task_label.emit('Connecting to device')
             self.device = self.get_device_location(self.device)
             try:
                 ser = serial.Serial(self.device, self.baudrate, timeout=self.timeout, bytesize=8, stopbits=1, parity='N')
@@ -128,9 +145,12 @@ class MnemoImporter(WorkerMixin):
             dump_file = []
             c = 0
             x = 0
+            # Within ariane a harcoded / non-resettable cycle-count of 100 is used
+            # Yet when debugging,.. I haven't seen it use more then 3 ever...
+            cycle_count = Preferences.get('mnemo_cycle_count', MNEMO_CYCLE_COUNT, int)
             while True:
-                if c > 100:
-                    time.sleep(0.5)
+                if c > cycle_count:
+                    # time.sleep(0.5)  # @todo why is this here?
                     self.s_task_label.emit('Finished reading data')
                     if len(dump_file) == 0:
                         raise Exception('NO_DATA_FOUND')
@@ -146,6 +166,8 @@ class MnemoImporter(WorkerMixin):
                     self.s_task_label.emit(f'Reading byte {x}')
                     dump_file.append(self.setbit_read(ser.read(1)))
                     self.s_progress.emit(x)
+                    # reset the cycle count here, should allow us to use a even lower cycle count.
+                    c = 0
 
             self.import_list = dump_file
             if ser.is_open:
@@ -156,14 +178,8 @@ class MnemoImporter(WorkerMixin):
                 ser.close()
             print('Keyboard interupt... RESTART THE MNEMO before rereading as you will end up somewhere in the middle of the stream.')
 
-    def _readableSize(self, bytes, index=0):
-        names = ['bytes', 'kilobytes', 'megabytes', 'gigabytes']
-        if bytes < 1000:
-            return f'{round(bytes, 2)} {names[index]}'
-        return self._readableSize(bytes/1000, index+1)
-
     def read_dump_file(self, path):
-        f_size = self._readableSize(os.stat(path).st_size)
+        f_size = self._readable_size(os.stat(path).st_size)
         self.s_task_label.emit(f'Reading file {f_size}')
         with open(path, "r") as dmp_file:
             lines = dmp_file.readlines()
@@ -184,107 +200,11 @@ class MnemoImporter(WorkerMixin):
         if not self.import_list:
             raise Exception('NO_DATA_FOUND')
 
-        survey_id = self.get_survey()
+        reader = MnemoDmpReader(self.import_list, self.sql_manager())
+        survey_id = reader.read()
         return survey_id
 
-    def get_survey(self):
-        survey_id = self.sql_manager().factor(Survey).insert_survey(device_name=Preferences.get("mnemo_device_name", MNEMO_DEVICE_NAME))
-        index = 6
-        while True:
-            index = self.get_section(index, survey_id)
-            index = index + 6
-            if index > len(self.import_list):
-                break
-        return survey_id
 
-    def get_section(self, start_from, survey_id):
-        mnemo_mode = ''.join([
-            chr(self.import_list[start_from]),
-            chr(self.import_list[start_from + 1]),
-            chr(self.import_list[start_from + 2])
-        ])
-
-        mnemo_section_number = self.too_2byte_int(self.import_list[start_from + 3], self.import_list[start_from + 4])
-        section_id = self.sql_manager().factor(Section).insert_section(
-            survey_id=survey_id,
-            section_reference_id=mnemo_section_number,
-            device_properties={"line_mode": mnemo_mode}
-        )
-        index = start_from + 3
-        station_reference_id = 1
-        length_in = 0
-        azimuth_in = 0
-        while True:
-            section_reference_id, length_in, azimuth_in = self.get_station(index, station_reference_id, survey_id, section_id, length_in, azimuth_in)
-            station_reference_id = station_reference_id + 1
-            index = index + self.LINE_BYTE_COUNT
-            if section_reference_id != mnemo_section_number:
-                index = index + 1
-                break
-            if index + self.LINE_BYTE_COUNT > len(self.import_list):
-                break
-        return index
-
-    def get_station(self, index: int, station_reference_id: int, survey_id: int, section_id: int,
-                    length_in: float = 0.0, azimuth_in: float = 0.0):
-        imp = self.import_list
-        section_reference_id = self.too_2byte_int(imp[index], imp[index + 1])
-        index = index + 2
-        azimuth_out = self.too_2byte_int(imp[index], imp[index + 1]) / 10
-        index = index + 2
-        azimuth_in_new = self.too_2byte_int(imp[index], imp[index + 1]) / 10
-        index = index + 2
-        length_out = self.too_2byte_int(imp[index], imp[index + 1]) / 100
-        index = index + 2
-        depth = self.too_2byte_int(imp[index], imp[index + 1]) / 100
-        index = index + 2
-        temperature = self.too_2byte_int(imp[index], imp[index + 1])
-
-        n = 11
-
-        avg_az_out = (azimuth_out + azimuth_in_new) / 2
-        self.sql_manager().factor(Station).insert_station(
-            survey_id=survey_id,
-            section_id=section_id,
-            section_reference_id=section_reference_id,
-            station_reference_id=station_reference_id,
-            length_in=length_in,
-            length_out=length_out,
-            azimuth_in=azimuth_in,
-            azimuth_out=azimuth_out,
-            azimuth_out_avg=avg_az_out,
-            depth=depth,
-            station_properties={'temperature': temperature},
-            station_name=f"Station {station_reference_id}"
-        )
-        return section_reference_id, length_out, azimuth_in_new
-
-    def too_2byte_int(self, byte_1: int, byte_2: int):
-        hex_1 = self.setbit_negative_to_positive(byte_1)
-        hex_2 = self.setbit_negative_to_positive(byte_2)
-        pad = ''
-        if len(hex_2) < 2:
-            pad = '0'
-        hex_str = '0x{}{}{}'.format(hex_1, pad, hex_2)
-        response = int(hex_str, 16)
-        return response
-
-    def setbit_negative_to_positive(self, decimal):
-        """
-        Mnemo/ariane uses "signed short integer" as a datatype (JAVA)
-        This has a range of -127 to 127 (which is setbit + 7 bits)
-
-        There are NO unsigned values in the data-dumps, yet there are values bigger than 127.
-        As a result, these are writen as negative numbers in the dump file.
-
-        When reading the dumpfile we need to convert these negatives back to it's positive representation.
-
-            For some reason.
-        """
-        if decimal < 0:
-            decimal = int(format((1 << 8) + decimal, '08b'), 2)
-
-        return hex(decimal).split('x')[1]
 
     def setbit_read(self, byte) -> int:
         """
@@ -313,9 +233,275 @@ class MnemoImporter(WorkerMixin):
 
         return integer - 256
 
+    def _readable_size(self, byte_length: int, index=0):
+        names = ['bytes', 'kilobytes', 'megabytes', 'gigabytes']
+        if byte_length < 1000:
+            return f'{round(byte_length, 2)} {names[index]}'
+        return self._readable_size(byte_length / 1000, index + 1)
+
+
+class MnemoDmpReader:
+
+    LINE_LENGTH_SECTION = 10
+    LINE_LENGTH_STATION = 16
+
+    END_OF_SECTION_LIST = (3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,)
+
+    DIRECTION_IN = 0
+    DIRECTION_OUT = 1
+    DIRECTIONS = ("IN", "OUT", "UNKNOWN",)
+
+    STATUS_INPROGRESS = 2
+    STATUS_ENDSECTION = 3
+
+    def __init__(self, byte_list: list, sql_manager: SqlManager):
+        self.bytes = byte_list
+        self.sql_manager = sql_manager
+
+        self.survey = self.sql_manager.factor(Survey)
+        self.section = self.sql_manager.factor(Section)
+        self.station = self.sql_manager.factor(Station)
+
+        self._index = -1
+
+    def read(self) -> list:
+        """
+        :return: survey_id
+        """
+        survey_id = self.survey.insert_survey(
+                device_name=Preferences.get("mnemo_device_name", MNEMO_DEVICE_NAME, str),
+                device_properties={
+                    "bytes_in_dumpfile": len(self.bytes)
+                }
+            )
+
+        section_reference_id = 0
+        while True:
+            if self.end_of_bytes(self.LINE_LENGTH_SECTION):
+                # empty section / incomplete section
+                break
+
+            # Loop through every section on the device
+            #  2;21;3;7;13;4;66;65;83;0
+            section_reference_id += 1
+            section_props = self.parse_section_line()
+            section_id = self.section.insert_section(
+                    survey_id=survey_id,
+                    section_reference_id=section_reference_id,
+                    direction=section_props['direction'],
+                    device_properties=section_props
+                )
+
+            station_reference_id = 0
+            azimuth_in = 0
+            length_in = 0
+            while True:
+                if self.end_of_bytes(self.LINE_LENGTH_STATION):
+                    # end of dumpfile / incomplete line.
+                    if len(self.bytes) - self._jump(0, False) > 0:
+                        logging.getLogger(__name__).error(f'Found incomplete station at ending at byte: {self._jump(0, False)}')
+                    break
+                # Loop through every station for this stations
+                station_reference_id += 1
+                if self.end_of_section():
+                    # @todo I think that I need to add a last point to the database.
+                    #       This as we are not storing lines but points, the only question I have is... where do I get the depth from..?
+                    #       it should be the depth_in...
+                    props = {
+                        "status": True,
+                        "skipped_bytes": 0,
+                        "status_byte": 3,
+                        "comment": "Last station is generated"
+
+                    }
+                    self.station.insert_station(
+                        survey_id=survey_id,
+                        section_id=section_id,
+                        section_reference_id=section_reference_id,
+                        station_reference_id=station_reference_id,
+                        length_in=length_in,
+                        length_out=0,
+                        #  we need to reverse the azimuth as we are storing a station and not a line.
+                        #  as the line starts at a point, the azimuth in of a line.. is the azimuth out of a station.
+                        #  the azimuth out of a line..is the azimuth in of a station.
+                        azimuth_in=azimuth_in,
+                        azimuth_out=0,
+                        # @todo I should use the avg of the previous station here probably.
+                        azimuth_out_avg=azimuth_in,
+                        depth=last_depth,
+                        station_properties=props,
+                        station_name=f"Station {station_reference_id}"
+                    )
+                    break
+
+                station_reference_id += 1
+                station_props = self.parse_station_line()
+                self.station.insert_station(
+                    survey_id=survey_id,
+                    section_id=section_id,
+                    section_reference_id=section_reference_id,
+                    station_reference_id=station_reference_id,
+                    length_in=length_in,
+                    length_out=station_props['length'],
+                    #  we need to reverse the azimuth as we are storing a station and not a line.
+                    #  as the line starts at a point, the azimuth in of a line.. is the azimuth out of a station.
+                    #  the azimuth out of a line..is the azimuth in of a station.
+                    azimuth_in=azimuth_in,
+                    azimuth_out=station_props['azimuth_in'],
+                    azimuth_out_avg=(station_props['azimuth_in'] + station_props['azimuth_out']) / 2,
+                    depth=station_props['depth_out'],
+                    station_properties=station_props,
+                    station_name= f"Station {station_reference_id}"
+                )
+                length_in = station_props['length']
+                azimuth_in = station_props['azimuth_out']
+                last_depth = station_props['depth_in']
+
+        return survey_id
+
+    def parse_section_line(self):
+        #  2;21;3;7;13;4;66;65;83;0
+        properties = {
+            "direction": self.DIRECTIONS[2],
+            "skipped_bytes": 0,
+            "status": False,
+        }
+        # @ariane Skip unknown data until version number in case of previously damaged sections?
+        while self.read_int8() != 2:
+            properties['skipped_bytes'] += 1
+            if self.end_of_bytes():
+                properties["status"] = False
+                properties["error"] = "End of dmp file reached"
+                return properties
+            continue
+
+
+        if self.end_of_bytes(self.LINE_LENGTH_SECTION):
+            # empty survey
+            return False, properties
+
+        if self.byte_at_has_value(self.LINE_LENGTH_SECTION - 1, [self.DIRECTION_IN, self.DIRECTION_OUT]) is False \
+                or self.byte_at_has_value(self.LINE_LENGTH_SECTION, [self.STATUS_INPROGRESS, self.STATUS_ENDSECTION]) is False:
+            # Station line does not start at the expected location.
+            properties['error'] = "Section does not meet expected length"
+            properties['error_data'] = {
+                "status_byte_index": self._jump(-1, False),
+                "status_byte_value": self.read_int8(-1, False),
+                "next_direction_byte_index": self._jump(self.LINE_LENGTH_SECTION - 1, False),
+                "next_direction_byte_value": self.read_int8(self.LINE_LENGTH_SECTION - 1, False),
+            }
+            return False, properties
+
+        properties['version'] = self.read_int8(0, False)
+
+        year = self.read_int8()
+        month = self.read_int8()
+        day = self.read_int8()
+        hour = self.read_int8()
+        minute = self.read_int8()
+
+        properties["datetime"] = f'{hour}:{0 if minute < 10 else ""}{minute} {day}-{month} {year}'
+        properties["name"] = f'{self.read_char()}{self.read_char()}{self.read_char()}'
+        properties["direction"] = self.get_direction(self.read_int8())
+        properties["status"] = True
+        return properties
+
+    def parse_station_line(self):
+        # 2;2;28;2;78;5;27;6;-4;7;37;-1;-17;-1;-60;0;  ## station is 16 long
+        props = {
+            'status': False,
+            'missing_bytes': 0,
+            'byte_start': self._jump(0, False)
+        }
+        try:
+            props['status_byte'] = self.read_int8()
+            props['azimuth_in'] = self.read_int16() / 10
+            props['azimuth_out'] = self.read_int16() / 10
+            props['length'] = self.read_int16() / 100
+            props['depth_in'] = self.read_int16() / 100
+            props['depth_out'] = self.read_int16() / 100
+            props['pitch_in'] = self.read_int16() / 100
+            props['pitch_out'] = self.read_int16() / 100
+            props['direction'] = self.get_direction(self.read_int8())
+            props['status'] = True
+
+        except IndexError as error:
+            props['error'] = 'Next byte could not be found',
+            props['missing_bytes'] = (props['byte_start'] + self.LINE_LENGTH_STATION) - self._jump(0, False)
+
+        props['byte_end'] = self._jump(0, False)
+        return props
+
+    def get_direction(self, index: int) -> str:
+        try:
+            return self.DIRECTIONS[index]
+        except IndexError:
+            return f'{self.DIRECTIONS[2]} - ({index})'
+
+    def read_int8(self, add_to_index: int = 1, update_index: bool=True) -> int:
+        return self._setbit_negative_to_positive(self.bytes[self._jump(add_to_index, update_index)], True)
+
+    def read_int16(self, add_to_index: int = 1, update_index: bool=True) -> int:
+        b_1 = self._setbit_negative_to_positive(self.bytes[self._jump(add_to_index, False)])
+        b_2 = self._setbit_negative_to_positive(self.bytes[self._jump(add_to_index+1, update_index)])
+        pad = ''
+        if len(b_2) < 2:
+            pad = '0'
+        hex_str = '0x{}{}{}'.format(b_1, pad, b_2)
+        response = int(hex_str, 16)
+        return response
+
+    def read_char(self, add_to_index: int = 1, update_index: bool=True) -> chr:
+        return chr(self.read_int8(add_to_index, update_index))
+
+    def end_of_bytes(self, add_to_index: int = 1) -> int:
+        if self._jump(add_to_index, False) >= len(self.bytes):
+            return True
+        return False
+
+    def end_of_section(self, from_index: int = 0):
+        for i in range(1, self.LINE_LENGTH_STATION+1):
+            if self.read_int8(from_index + i, False) != self.END_OF_SECTION_LIST[i - 1]:
+                return False
+        return True
+
+    def byte_at_has_value(self, add_to_index: int, value) -> bool:
+        if isinstance(value, list) is False:
+            value = [value]
+
+        if self.read_int8(add_to_index, False) in value:
+            return True
+        return False
+
+    def _jump(self, count: int, update_index: bool = True) -> int:
+        index = self._index + count
+        if update_index is True:
+            self._index = index
+        return index
+
+    def _setbit_negative_to_positive(self, decimal, as_int=False):
+        """
+        Mnemo/ariane uses "signed short integer" as a datatype (JAVA)
+        This has a range of -127 to 127 (which is setbit + 7 bits)
+
+        There are NO unsigned values in the data-dumps, yet there are values bigger than 127.
+        As a result, these are writen as negative numbers in the dump file.
+
+        When reading the dumpfile we need to convert these negatives back to it's positive representation.
+        """
+        if decimal < 0:
+            decimal = int(format((1 << 8) + decimal, '08b'), 2)
+
+        result = hex(decimal).split('x')[1]
+        if as_int is True:
+            return int(result, 16)
+        return result
+
+
 
 if __name__ == '__main__':
-    importer = MnemoImporter(thread_action=MnemoImporter.ACTION_READ_DUMP, in_file='/home/flip/Code/stickmaps/data_files/findingmnemo_orig.dmp')
+    #importer = MnemoImporter(thread_action=MnemoImporter.ACTION_READ_DUMP, in_file='/home/flip/Code/stickmaps/data_files/tux.dmp')
+    importer = MnemoImporter(thread_action=MnemoImporter.ACTION_READ_DUMP, in_file='/home/flip/Code/stickmaps/data_files/stickmaps_dump.dmp')
     importer.run()
     #importer.read_dump_file('/home/flip/Code/stickmaps/data_files/findingmnemo_orig.dmp')
     # print(f"DEVICE is at: {importer.get_device_location()}")

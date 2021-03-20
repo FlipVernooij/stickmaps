@@ -6,9 +6,11 @@ from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, Q
     QCheckBox, QComboBox, QSpinBox, QLabel, QPushButton
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, MNEMO_DEVICE_DESCRIPTION, DEBUG, \
-    MNEMO_DEVICE_NAME, MNEMO_BAUDRATE, MNEMO_TIMEOUT
+    MNEMO_DEVICE_NAME, MNEMO_BAUDRATE, MNEMO_TIMEOUT, MNEMO_CYCLE_COUNT
 from Models.TableModels import Section, Survey, Station
 from Utils.Settings import Preferences
+
+import traceback
 
 
 class ErrorDialog:
@@ -85,6 +87,8 @@ class ErrorDialog:
 
         if error_exception is not None:
             body = f'{body}<p><br /><code>{str(error_exception)}</code><br /></p>'
+            if Preferences.get('debug', DEBUG, bool) is True:
+                body = f'{body}<p><code>{traceback.format_exc(10)}</code>'
 
         window = QErrorMessage(parent_window)
         window.resize(500, 250)
@@ -149,6 +153,15 @@ class PreferencesDialog(QDialog):
                     "form_field": "text_line",
                     "settings_key": "mnemo_device_name",
                     "default_value": MNEMO_DEVICE_NAME
+                },
+                {
+                  "label": "Read cycles",
+                  "info": "The amount of tries we will try to fetch more data from the Mnemo serial connection.",
+                    "form_field": "spinner",
+                    "min": 10,
+                    "max": 100,
+                    "settings_key": "mnemo_cycle_count",
+                    "default_value": MNEMO_CYCLE_COUNT,
                 },
                 {
                     "label": "Device ",
@@ -485,7 +498,7 @@ class EditSectionsDialog(QDialog):
     def __init__(self, parent, item):
         super().__init__(parent.main_window)
         self.tree_view = parent
-        self.survey_id = item.section_id
+        self.survey_id = item.survey_id
         self.item = item
         self.setWindowTitle('Edit sections')
         self.resize(800, 400)
@@ -496,9 +509,10 @@ class EditSectionsDialog(QDialog):
         model.setHeaderData(0, Qt.Horizontal, "Survey id")
         model.setHeaderData(1, Qt.Horizontal, "Section id")
         model.setHeaderData(2, Qt.Horizontal, "Device reference id")
-        model.setHeaderData(3, Qt.Horizontal, "Device properties")
-        model.setHeaderData(4, Qt.Horizontal, "Section name")
-        model.setHeaderData(5, Qt.Horizontal, "Section comment")
+        model.setHeaderData(3, Qt.Horizontal, "Survey direction")
+        model.setHeaderData(4, Qt.Horizontal, "Device properties")
+        model.setHeaderData(5, Qt.Horizontal, "Section name")
+        model.setHeaderData(6, Qt.Horizontal, "Section comment")
 
         view = QTableView(self)
         view.setSelectionMode(QTableView.NoSelection)

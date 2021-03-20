@@ -12,9 +12,10 @@ class WorkerMixin(QObject):
     s_task_label = Signal(str)
     s_reload_treeview = Signal(int)
 
-    def __init__(self):
+    def __init__(self, thread_action: str = None):
         super().__init__()
         self._sql_manager = None
+        self._tread_action = thread_action
 
     def set_sql_manager(self, connection_name: str = None):
         self._sql_manager = SqlManager(connection_name)
@@ -28,7 +29,7 @@ class WorkerMixin(QObject):
             self._sql_manager.close_connection()
         self.s_finished.emit()
 
-    def run(self, thread_action: str):
+    def run(self):
         raise NotImplementedError('run() is a required method, please implement it.')
 
 class ThreadWithProgressBar:

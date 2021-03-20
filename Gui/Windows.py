@@ -13,7 +13,7 @@ from Gui.Menus import MainMenu
 from Models.ItemModels import SurveyCollection, SectionItem
 from Models.TableModels import SqlManager
 from Utils.Logging import LogStream
-from Utils.Rendering import DragImage
+from Utils.Rendering import DragImage, ImageTest
 from Utils.Settings import Preferences
 
 
@@ -206,7 +206,7 @@ class MapView(QScrollArea):
         section_id = mime.property('section_id')
         section_name = mime.property('section_name')
 
-        pixmap = DragImage(section_id=section_id, section_name=section_name)
+        pixmap = ImageTest(section_id=section_id, section_name=section_name)
         image = QLabel('img')
         image.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         image.setScaledContents(True)
@@ -216,9 +216,6 @@ class MapView(QScrollArea):
         event.accept()
         return
 
-    @classmethod
-    def dropAction(cls, item):
-        foo = 1
 
 
 class DebugConsole(QWidget):
