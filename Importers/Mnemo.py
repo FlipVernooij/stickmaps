@@ -267,6 +267,10 @@ class MnemoDmpReader:
     def read(self) -> list:
         """
         :return: survey_id
+
+        @todo An empty section is parsed having 1 single (useless) station
+        @todo Empty section at end of dump file, shows 2 empty sections...
+                In short the end of the dump-file is not properly detected.
         """
         survey_id = self.survey.insert_survey(
                 device_name=Preferences.get("mnemo_device_name", MNEMO_DEVICE_NAME, str),
@@ -279,7 +283,7 @@ class MnemoDmpReader:
         while True:
             if self.end_of_bytes(self.LINE_LENGTH_SECTION):
                 # empty section / incomplete section
-                break
+                return survey_id
 
             # Loop through every section on the device
             #  2;21;3;7;13;4;66;65;83;0
@@ -291,22 +295,27 @@ class MnemoDmpReader:
                     direction=section_props['direction'],
                     device_properties=section_props
                 )
-
             station_reference_id = 0
             azimuth_in = 0
             length_in = 0
             while True:
                 if self.end_of_bytes(self.LINE_LENGTH_STATION):
-                    # end of dumpfile / incomplete line.
-                    if len(self.bytes) - self._jump(0, False) > 0:
-                        logging.getLogger(__name__).error(f'Found incomplete station at ending at byte: {self._jump(0, False)}')
-                    break
+                    # Here we have LESS that a full station-line.
+                    #   1.) The section is the last entry of the dump, no end-section line exists
+                    #   2.) The next line is incomplete and is smaller then 16 bytes.
+                    if len(self.bytes) - self._jump(self.LINE_LENGTH_STATION, False) > 0:
+                        logging.getLogger(__name__).error(f'Found incomplete station with {len(self.bytes) - self._jump(0, False)} bytes, starting at byte: {self._jump(0, False)}, total bytes {len(self.bytes)}')
+                    return survey_id
+
+
+
                 # Loop through every station for this stations
                 station_reference_id += 1
                 if self.end_of_section():
-                    # @todo I think that I need to add a last point to the database.
-                    #       This as we are not storing lines but points, the only question I have is... where do I get the depth from..?
-                    #       it should be the depth_in...
+                    if station_reference_id == 1:
+                        # this is an empty section, don't insert this station
+                        break
+
                     props = {
                         "status": True,
                         "skipped_bytes": 0,
@@ -334,7 +343,6 @@ class MnemoDmpReader:
                     )
                     break
 
-                station_reference_id += 1
                 station_props = self.parse_station_line()
                 self.station.insert_station(
                     survey_id=survey_id,
@@ -455,13 +463,17 @@ class MnemoDmpReader:
         return chr(self.read_int8(add_to_index, update_index))
 
     def end_of_bytes(self, add_to_index: int = 1) -> int:
-        if self._jump(add_to_index, False) >= len(self.bytes):
+        # +1 because _jump() first adds to the index, then returns it.
+        #    so self._index is always 1 step behind...
+        if self._jump(add_to_index + 1, False) >= len(self.bytes):
             return True
         return False
 
-    def end_of_section(self, from_index: int = 0):
+    def end_of_section(self, add_to_index: int = 0):
+        # +1 because _jump() first adds to the index, then returns it.
+        #    so self._index is always 1 step behind...
         for i in range(1, self.LINE_LENGTH_STATION+1):
-            if self.read_int8(from_index + i, False) != self.END_OF_SECTION_LIST[i - 1]:
+            if self.read_int8(add_to_index + i, False) != self.END_OF_SECTION_LIST[i - 1]:
                 return False
         return True
 
