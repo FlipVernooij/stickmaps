@@ -1,3 +1,5 @@
+import PySide6
+from PySide6 import QtCore
 from PySide6.QtCore import QDateTime, QSysInfo, QSettings
 from PySide6.QtGui import Qt, QFont
 from PySide6.QtSql import QSqlTableModel
@@ -6,7 +8,9 @@ from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, Q
     QCheckBox, QComboBox, QSpinBox, QLabel, QPushButton
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, MNEMO_DEVICE_DESCRIPTION, DEBUG, \
-    MNEMO_DEVICE_NAME, MNEMO_BAUDRATE, MNEMO_TIMEOUT, MNEMO_CYCLE_COUNT
+    MNEMO_DEVICE_NAME, MNEMO_BAUDRATE, MNEMO_TIMEOUT, MNEMO_CYCLE_COUNT, SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT, \
+    SQL_DB_LOCATION
+from Gui.Delegates.FormElements import DropDown
 from Models.TableModels import Section, Survey, Station
 from Utils.Settings import Preferences
 
@@ -136,6 +140,16 @@ class PreferencesDialog(QDialog):
                     "value": f'{QSysInfo.kernelType()} - {QSysInfo.kernelVersion()}'
                 },
                 {
+                    "label": "QT version",
+                    "form_field": "label",
+                    "value": f'{QtCore.__version__}'
+                },
+                {
+                    "label": "PySide version",
+                    "form_field": "label",
+                    "value": f'{PySide6.__version__}'
+                },
+                {
                     "label": "Enable developer-mode",
                     "info": "Enables some advanced configuration-options and debugging tools, USE WITH CARE!",
                     "form_field": "check_box",
@@ -200,7 +214,14 @@ class PreferencesDialog(QDialog):
         "Debug": {
             "dev_only": True,
             "fields": [
-                 {
+                {
+                    "label": "Sqlite database location",
+                    "info": "Use \":memory:\" to create a fast yet volatile database in RAM.",
+                    "form_field": "text_line",
+                    "settings_key": "sql_db_location",
+                    "default_value": SQL_DB_LOCATION,
+                },
+                {
                     "label": "QSettings raw data",
                     "form_field": "label_ml",
                     "value_from_function": "_settings_as_string"
@@ -409,26 +430,65 @@ class EditSurveysDialog(QDialog):
     def __init__(self, parent):
         super(EditSurveysDialog, self).__init__(parent)
         model = parent.sql_manager.factor(Survey)
-        model.setEditStrategy(QSqlTableModel.OnFieldChange)
+        model.setEditStrategy(QSqlTableModel.OnManualSubmit)
 
         model.setHeaderData(0, Qt.Horizontal, "Survey ID")
         model.setHeaderData(1, Qt.Horizontal, "Device name")
-        model.setHeaderData(2, Qt.Horizontal, "Survey date/time")
-        model.setHeaderData(3, Qt.Horizontal, "Survey name")
-        model.setHeaderData(4, Qt.Horizontal, "Survey comment")
+        model.setHeaderData(2, Qt.Horizontal, "Device properties")
+        model.setHeaderData(3, Qt.Horizontal, "Date & time")
+        model.setHeaderData(4, Qt.Horizontal, "Survey name")
+        model.setHeaderData(5, Qt.Horizontal, "Survey comment")
         model.select()
 
         view = QTableView(self)
         view.setModel(model)
-        view.resizeColumnsToContents()
+        view.setAlternatingRowColors(True)
+        view.setSortingEnabled(True)
+        view.setSelectionMode(QTableView.NoSelection)
+        view.setColumnWidth(0, 75)
+        view.setColumnWidth(1, 100)
+        view.setColumnWidth(2, 110)
+        view.setColumnWidth(3, 160)
+        view.setColumnWidth(4, 140)
+        view.horizontalHeader().setStretchLastSection(True)
 
+
+        if Preferences.debug() is False:
+            view.setColumnHidden(0, True)
+            view.setColumnHidden(2, True)
 
         self.setWindowTitle('Edit surveys')
         self.resize(800, 400)
 
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
         layout.addWidget(view)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save | QDialogButtonBox.Reset)
+        layout.addWidget(buttons)
+
+        buttons.accepted.connect(self.save)
+        buttons.rejected.connect(self.cancel)
+
+
         self.setLayout(layout)
+        self.table_view = view
+        self.tree_view = parent.tree_view
+
+    def save(self):
+        table = self.table_view
+        model = table.model()
+        model.submitAll()
+        self.tree_view.model().reload_model()
+        self.close()
+
+    def reset(self):
+        table = self.table_view
+        model = table.model()
+
+        model.revertAll()
+
+    def cancel(self):
+        self.close()
 
 
 class EditSurveyDialog(QDialog):
@@ -456,7 +516,7 @@ class EditSurveyDialog(QDialog):
         self.comment_field = QTextEdit(self.survey['survey_comment'])
         layout.addRow('&Comment', self.comment_field)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Reset | QDialogButtonBox.Cancel | QDialogButtonBox.Save)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save | QDialogButtonBox.Reset)
         layout.addRow(buttons)
 
         buttons.accepted.connect(self.save)
@@ -502,6 +562,7 @@ class EditSectionsDialog(QDialog):
         self.item = item
         self.setWindowTitle('Edit sections')
         self.resize(800, 400)
+
         model = parent.main_window.sql_manager.factor(Section)
         model.setEditStrategy(QSqlTableModel.OnManualSubmit)
         model.setFilter(f'survey_id={self.survey_id}')
@@ -513,11 +574,30 @@ class EditSectionsDialog(QDialog):
         model.setHeaderData(4, Qt.Horizontal, "Device properties")
         model.setHeaderData(5, Qt.Horizontal, "Section name")
         model.setHeaderData(6, Qt.Horizontal, "Section comment")
+        model.select()
 
         view = QTableView(self)
-        view.setSelectionMode(QTableView.NoSelection)
+        view.setModel(model)
         view.setAlternatingRowColors(True)
-        view.setShowGrid(True)
+        view.setSortingEnabled(True)
+        view.setSelectionMode(QTableView.NoSelection)
+        view.setColumnWidth(0, 60)
+        view.setColumnWidth(1, 70)
+        view.setColumnWidth(2, 110)
+        view.setColumnWidth(3, 100)
+        view.setColumnWidth(4, 120)
+        view.setColumnWidth(5, 140)
+        view.horizontalHeader().setStretchLastSection(True)
+
+        delegate = DropDown(self)
+        delegate.setOptions((SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT))
+        view.setItemDelegateForColumn(3, delegate)
+
+        view.setColumnHidden(1, True)  # survey_id
+        if Preferences.debug() is False:
+            view.setColumnHidden(0, True)  # section_id
+            view.setColumnHidden(4, True)  # section_id
+
         layout = QVBoxLayout()
         layout.addWidget(view)
 
@@ -528,14 +608,9 @@ class EditSectionsDialog(QDialog):
         buttons.rejected.connect(self.cancel)
         buttons.button(QDialogButtonBox.Reset).clicked.connect(self.reset)
 
-        view.setModel(model)
-        view.setColumnHidden(0, True)  # survey_id
-        view.setColumnHidden(1, True)  # section_id
 
-        view.horizontalHeader().setStretchLastSection(True)
 
-        view.resizeColumnsToContents()
-        model.select()
+
         self.table_view = view
         self.setLayout(layout)
 
@@ -573,6 +648,12 @@ class EditSectionDialog(QDialog):
         self.name_field.setClearButtonEnabled(True)
         layout.addRow('&Name', self.name_field)
 
+        self.direction_field = QComboBox(self)
+        self.direction_field.addItem(SURVEY_DIRECTION_IN)
+        self.direction_field.addItem(SURVEY_DIRECTION_OUT)
+        self.direction_field.setCurrentText(self.section['direction'])
+        layout.addRow('&Direction', self.direction_field)
+
         self.comment_field = QTextEdit(self.section['section_comment'])
         layout.addRow('&Comment', self.comment_field)
 
@@ -591,6 +672,7 @@ class EditSectionDialog(QDialog):
         section_dict = self.section
         section_dict['section_name'] = self.name_field.text()
         section_dict['section_comment'] = self.comment_field.toPlainText()
+        section_dict['direction'] = self.direction_field.currentText()
 
         tree = self.parentWidget()
         model = tree.model()
@@ -613,11 +695,12 @@ class EditStationsDialog(QDialog):
         self.tree_view = parent
         self.section_id = item.section_id
         self.item = item
-        self.setWindowTitle('Edit stations')
+        self.setWindowTitle('Edit stations WTF')
         self.resize(800, 400)
         model = parent.main_window.sql_manager.factor(Station)
         model.setEditStrategy(QSqlTableModel.OnManualSubmit)
         model.setFilter(f'section_id={self.section_id}')
+
 
         model.setHeaderData(0, Qt.Horizontal, "Station id")
         model.setHeaderData(1, Qt.Horizontal, "Section id")
@@ -628,16 +711,39 @@ class EditStationsDialog(QDialog):
         model.setHeaderData(6, Qt.Horizontal, "Length in")
         model.setHeaderData(7, Qt.Horizontal, "Azimuth in")
         model.setHeaderData(8, Qt.Horizontal, "Depth")
-        model.setHeaderData(9, Qt.Horizontal, "Temperature")
-        model.setHeaderData(10, Qt.Horizontal, "Azimuth out")
-        model.setHeaderData(11, Qt.Horizontal, "Azimuth out corrected")
-        model.setHeaderData(12, Qt.Horizontal, "Length out")
-        model.setHeaderData(13, Qt.Horizontal, "Station Comment")
+        model.setHeaderData(9, Qt.Horizontal, "Azimuth out")
+        model.setHeaderData(10, Qt.Horizontal, "Azimuth")
+        model.setHeaderData(11, Qt.Horizontal, "Length out")
+        model.setHeaderData(12, Qt.Horizontal, "Station Comment")
+        model.setHeaderData(13, Qt.Horizontal, "Device properties")
 
         view = QTableView(self)
-        view.setSelectionMode(QTableView.NoSelection)
+        view.setModel(model)
         view.setAlternatingRowColors(True)
-        view.setShowGrid(True)
+        view.setSortingEnabled(True)
+        view.setSelectionMode(QTableView.NoSelection)
+        view.setColumnWidth(0, 60)
+        view.setColumnWidth(1, 70)
+        view.setColumnWidth(2, 110)
+        view.setColumnWidth(3, 100)
+        view.setColumnWidth(4, 120)
+        view.setColumnWidth(5, 140)
+        view.setColumnWidth(6, 140)
+        view.setColumnWidth(7, 140)
+        view.setColumnWidth(8, 140)
+        view.setColumnWidth(9, 140)
+        view.setColumnWidth(10, 140)
+        view.setColumnWidth(11, 140)
+        view.setColumnWidth(12, 140)
+        view.horizontalHeader().setStretchLastSection(True)
+
+        view.setColumnHidden(1, True)  # survey_id
+        view.setColumnHidden(2, True)  # survey_id
+        if Preferences.debug() is False:
+            view.setColumnHidden(0, True)  # section_id
+            view.setColumnHidden(4, True)  # section_id
+            view.setColumnHidden(13, True)  # section_id
+
         layout = QVBoxLayout()
         layout.addWidget(view)
 
@@ -647,12 +753,6 @@ class EditStationsDialog(QDialog):
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.cancel)
         buttons.button(QDialogButtonBox.Reset).clicked.connect(self.reset)
-
-        view.setModel(model)
-        view.setColumnHidden(0, True)  # survey_id
-        view.setColumnHidden(1, True)  # section_id
-        view.setColumnHidden(2, True)  # section_id
-        view.setColumnHidden(4, True)  # section_id
 
         view.horizontalHeader().setStretchLastSection(True)
 

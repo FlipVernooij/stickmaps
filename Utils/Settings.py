@@ -1,9 +1,15 @@
 from PySide6.QtCore import QSettings
 
+from Config.Constants import DEBUG
+
 
 class Preferences:
 
     section_key = "Preferences"
+
+    @classmethod
+    def debug(cls) -> bool:
+        return cls.get('debug', DEBUG, bool)
 
     @classmethod
     def get(cls, key: str, default=None, type_hint=str):

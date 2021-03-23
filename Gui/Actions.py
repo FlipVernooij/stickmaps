@@ -14,6 +14,7 @@ from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditSectionsDialog, EditS
     EditStationDialog, PreferencesDialog
 from Gui.Dialogs import EditSurveysDialog
 from Importers.Mnemo import MnemoImporter
+from Models.TableModels import SqlManager, Section, Survey
 from Utils.Settings import Preferences
 from Utils.Storage import SurveyData
 from Workers.Mixins import ThreadWithProgressBar
@@ -329,6 +330,20 @@ class TreeActions:
         item = index.model().itemFromIndex(index)
         dialog = EditSectionsDialog(self.tree_view, item)
         dialog.show()
+
+    def remove_empty_sections(self):
+        action = QAction('remove empty sections', self.context_menu)
+        action.triggered.connect(lambda: self.remove_empty_sections_callback())
+        return action
+
+    def remove_empty_sections_callback(self):
+        index = self.tree_view.selectedIndexes()[0]
+        item = index.model().itemFromIndex(index)
+        survey = SqlManager().factor(Survey)
+        c = survey.remove_empty_sections(item.survey_id)
+        self.tree_view.model().reload_sections(item)
+        self.tree_view.setCurrentIndex(item.index())
+        self.tree_view.main_window.statusBar().showMessage(f'Removed {c} empty sections from survey', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
     def edit_section(self):
         action = QAction('edit section', self.context_menu)

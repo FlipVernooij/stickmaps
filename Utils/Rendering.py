@@ -3,8 +3,10 @@ import math
 
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, Qt
+from PySide6.QtWidgets import QGraphicsScene
 
-from Models.TableModels import Station, SqlManager
+from Config.Constants import SURVEY_DIRECTION_OUT, SURVEY_DIRECTION_IN
+from Models.TableModels import Station, SqlManager, Section
 from Utils.Logging import Track
 
 
@@ -109,12 +111,11 @@ class DragImage(CalcMixin):
 
     MAP_LINE_COLOR = Qt.gray
 
-    def __init__(self, section_id: int, section_name: str, connection_name: str = None):
+    def __init__(self, section_id: int, connection_name: str = None):
         super().__init__()
         self.cursor_location = QPointF(0, 0)
         self.sql_manager = SqlManager(connection_name if connection_name is not None else self.SQL_MANAGER_CONNECTION_NAME)
-        self.section_id = section_id
-        self.section_name = section_name
+        self.section = self.sql_manager.factor(Section).get_section(section_id)
         self.stations = self.sql_manager.factor(Station).get_stations_for_section(section_id)
 
         path_data = self.get_path(self.stations)
@@ -128,7 +129,8 @@ class DragImage(CalcMixin):
         self.painter = QPainter()
         self.painter.begin(self.pixmap)
         self.painter.setRenderHint(QPainter.Antialiasing)
-
+        Section
+        1
         self.pen = QPen(self.MAP_LINE_COLOR, self.MAP_LINE_WIDTH)
 
         self.painter.setPen(self.pen)
@@ -141,7 +143,8 @@ class DragImage(CalcMixin):
             e.setX(self.get_plane_x(e.x(), path_data['grid']) + (self.MAP_PADDING / 2))
             e.setY(self.get_plane_y(e.y(), path_data['grid']) + (self.MAP_PADDING / 2))
             self.painter.drawLine(s, e)
-            if i == 0:
+            if (i == 0 and self.section['direction'] == SURVEY_DIRECTION_IN) \
+                or (i == len(path_data['path'])-1 and self.section['direction'] == SURVEY_DIRECTION_OUT):
                 self.cursor_location = s
                 self.pen.setColor(Qt.red)
                 self.painter.setPen(self.pen)
@@ -150,7 +153,9 @@ class DragImage(CalcMixin):
                 self.pen.setColor(self.MAP_LINE_COLOR)
                 self.painter.setPen(self.pen)
                 self.painter.setBrush(self.MAP_LINE_COLOR)
-            self.painter.drawEllipse(e, self.MAP_STATION_DOT, self.MAP_STATION_DOT)
+            else:
+                self.painter.drawEllipse(e, self.MAP_STATION_DOT, self.MAP_STATION_DOT)
+
 
 
         self.painter.end()
@@ -160,6 +165,38 @@ class DragImage(CalcMixin):
 
     def get_cursor_location(self):
         return self.cursor_location.toPoint()
+
+
+# QGraphicsScene
+class MapScene(QGraphicsScene):
+    """
+        This will combine all underneath layers to a single response..
+    """
+    def __init__(self, parent_view):
+        super().__init__(parent=parent_view)
+        self.parent_view = parent_view
+
+
+class  LineLayer(CalcMixin):
+    """
+        This is the bottom layer if the "image"
+        It only renders the "line"
+    """
+
+class StationLayer(CalcMixin):
+    """
+        This will be the layer that renders all the stations circels.
+    """
+
+class TextLayer(CalcMixin):
+    """
+        This will be the layer that renders all the different station names, notes and other crap.
+    """
+
+class InteractiveLayer(CalcMixin):
+    """
+        This will be the interactive layer, and will be responsible for all the different interactions.
+    """
 
 
 class ImageTest(CalcMixin):

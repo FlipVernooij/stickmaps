@@ -1,20 +1,33 @@
 import json
+import logging
 from datetime import datetime
 
-from PySide6.QtCore import QModelIndex, Qt, QSettings
+from PySide6.QtCore import QModelIndex, Qt, QSettings, QDateTime
 from PySide6.QtSql import QSqlTableModel, QSqlQuery, QSqlRelationalTableModel, QSqlRelation, QSqlDatabase
 
 from Config.Constants import SQL_TABLE_STATIONS, SQL_TABLE_SECTIONS, SQL_TABLE_SURVEYS, SQL_TABLE_CONTACTS, \
-    SQL_TABLE_EXPLORERS, SQL_TABLE_SURVEYORS, SQL_DB_LOCATION, SQL_CONNECTION_NAME
+    SQL_TABLE_EXPLORERS, SQL_TABLE_SURVEYORS, SQL_DB_LOCATION, SQL_CONNECTION_NAME, DEBUG
+from Utils.Settings import Preferences
 
 
 class QueryMixin:
 
-    def db_exec(self, sql):
+    def db_exec(self, sql: str, params: list = []):
         settings = QSettings()
         settings.setValue('SaveFile/is_changed', True)
-        query = QSqlQuery(self.db)
-        return query.exec_(sql)
+        obj = QSqlQuery(self.db)
+        status = obj.prepare(sql)
+        if status is False:
+            self._log.error(f'db_exec prepare failed: {obj.lastError()}')
+
+        for value in params:
+            obj.addBindValue(value)
+
+        obj.exec_()
+        err = obj.lastError().text()
+        if len(err) > 0:
+            self._log.error(f'db_exec exec error: {err}')
+        return obj
 
     def db_insert(self, table_name: str, values: dict) -> int:
         settings = QSettings()
@@ -50,12 +63,10 @@ class QueryMixin:
 
         placeholder = ', '.join(placeholders)
         query = f'INSERT INTO {table_name} ({col_names})VALUES {placeholder}'
-        obj = QSqlQuery(self.db)
-        obj.prepare(query)
-        for value in params:
-            obj.addBindValue(value)
+        obj = self.db_exec(query, params)
 
-        if obj.exec_() is False:
+        if obj is False:
+            self._log.error(f'Sql bulk insert query failed! {obj.lastError()}')
             raise SyntaxError('Sql bulk insert query failed!')
         row_count = obj.numRowsAffected()
         if new_start_at > 0:
@@ -82,13 +93,7 @@ class QueryMixin:
         settings = QSettings()
         settings.setValue('SaveFile/is_changed', True)
         query = f'DELETE FROM {table_name} WHERE {where_str}'
-        obj = QSqlQuery(self.db)
-        obj.prepare(query)
-
-        for value in params:
-            obj.addBindValue(value)
-
-        obj.exec_()
+        obj = self.db_exec(query, params)
         return obj.numRowsAffected()
 
     def db_get(self, table_name, where_str, params) -> dict:
@@ -118,13 +123,7 @@ class QueryMixin:
         if type(params) is not list:
             params = [params]
 
-        obj = QSqlQuery(self.db)
-        obj.prepare(sql)
-
-        for param in params:
-            obj.addBindValue(param)
-
-        obj.exec_()
+        obj = self.db_exec(sql, params)
         rows = []
         while obj.next():
             row = {}
@@ -135,6 +134,7 @@ class QueryMixin:
 
     def __init__(self, db):
         self.db = db
+        self._log = logging.getLogger(__name__)
 
 
 class SqlManager:
@@ -194,7 +194,7 @@ class SqlManager:
         self.connection_name = connection_name
         if QSqlDatabase.contains(connection_name) is False:
             self.db = QSqlDatabase.addDatabase('QSQLITE', connection_name)
-            self.db.setDatabaseName(SQL_DB_LOCATION)
+            self.db.setDatabaseName(Preferences.get('sql_db_location', SQL_DB_LOCATION, str))
         else:
             self.db = QSqlDatabase.database(connection_name)
 
@@ -210,7 +210,7 @@ class Survey(QueryMixin, QSqlTableModel):
                 survey_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_name TEXT,
                 device_properties TEXT,
-                survey_datetime TEXT,
+                survey_datetime INTEGER,
                 survey_name TEXT,
                 survey_comment TEXT
             )
@@ -227,23 +227,17 @@ class Survey(QueryMixin, QSqlTableModel):
         return self.db_get(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
 
     def insert_survey(self, device_name: str, device_properties: dict = {}) -> int:
-        self.select()
-        # do not set break-points here, you will start inserting multiple records per break-point.
-        record = self.record()
-        now = datetime.now()
-        record.setValue('survey_id', None)
-        record.setValue('device_name', device_name)
-        record.setValue('device_properties', json.dumps(device_properties))
-        record.setValue('survey_datetime', now.timestamp())
-        record.setValue('survey_name', now.strftime('%c'))
-        record.setValue('survey_comment', '')
-        # -1 is set to indicate that it will be added to the last row
-        if self.insertRecord(-1, record):
-            self.submitAll()
-            last_insert_id = self.query().lastInsertId()
-            return last_insert_id
 
-        raise SyntaxError('Database error: Could not insert survey')
+        now = datetime.now()
+        data = {
+            'device_name': device_name,
+            'device_properties': json.dumps(device_properties),
+            'survey_datetime': now.timestamp(),
+            'survey_name': f'{device_name} {now.month}-{now.day}',
+            'survey_comment': ''
+        }
+
+        return self.db_insert(SQL_TABLE_SURVEYS, data)
 
     def update_survey(self, values: dict, survey_id: int) -> int:
         return self.db_update(SQL_TABLE_SURVEYS, values, 'survey_id=?', [survey_id])
@@ -257,6 +251,20 @@ class Survey(QueryMixin, QSqlTableModel):
     def dump_table(self):
         return self.db_fetch(f"SELECT * FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id ASC")
 
+    def remove_empty_sections(self, survey_id):
+        q="""
+            DELETE FROM sections WHERE section_id IN (
+                SELECT a.section_id
+                    FROM sections AS a
+                         LEFT JOIN stations AS b ON a.section_id = b.section_id
+                WHERE a.survey_id = ?
+                  AND station_id IS NULL
+            )
+        """
+        logging.getLogger(__name__).info(f'removing empty sections for survey_id={survey_id}')
+        res = self.db_exec(q, [survey_id])
+        return res.numRowsAffected()
+
     def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
@@ -267,6 +275,33 @@ class Survey(QueryMixin, QSqlTableModel):
         QSqlTableModel.__init__(self, db=db)
         self.setTable(SQL_TABLE_SURVEYS)
         self.setEditStrategy(self.OnManualSubmit)
+
+    def flags(self, index):
+        # this also affects the insert of a record.
+        if index.column() in [0, 2]:
+            return Qt.NoItemFlags  # both the id and device properties are un-editable.
+        return super().flags(index)
+
+    def setData(self, index, value, role):
+
+        if index.column() == 3:
+            if role == Qt.EditRole:
+                value = value.toSecsSinceEpoch()
+
+        return super().setData(index, value, role)
+
+    def data(self, index, role):
+        data = super().data(index, role)
+        if role == Qt.TextAlignmentRole:
+            if index.column() in (0, 2, 3,):
+                return Qt.AlignCenter
+        if role == Qt.EditRole:
+            if index.column() == 3:
+                return QDateTime(datetime.fromtimestamp(data))
+        if role == Qt.DisplayRole:
+            if index.column() == 3:
+                return datetime.fromtimestamp(data).ctime()
+        return data
 
 
 class Section(QueryMixin, QSqlTableModel):
@@ -295,24 +330,15 @@ class Section(QueryMixin, QSqlTableModel):
         return self.db_get(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
 
     def insert_section(self, survey_id: int, section_reference_id: int, direction: str, device_properties: dict) -> int:
-        self.select()
-        # do not set breakstations here, you will start inserting multiple records per breakstation.
-        record = self.record()
-        now = datetime.now()
-        record.setValue('section_id', None)
-        record.setValue('survey_id', survey_id)
-        record.setValue('section_reference_id', section_reference_id)
-        record.setValue('direction', direction)
-        record.setValue('device_properties', json.dumps(device_properties))
-        record.setValue('section_name', f'Section {section_reference_id}')
-        record.setValue('section_comment', '')
-        # -1 is set to indicate that it will be added to the last row
-        if self.insertRecord(-1, record):
-            self.submitAll()
-            last_insert_id = self.query().lastInsertId()
-            return last_insert_id
-
-        raise SyntaxError('Database error: Could not insert section')
+        data = {
+            'survey_id': survey_id,
+            'section_reference_id': section_reference_id,
+            'direction': direction,
+            'device_properties': json.dumps(device_properties),
+            'section_name': f'Section {section_reference_id}',
+            'section_comment': ''
+        }
+        return self.db_insert(SQL_TABLE_SECTIONS, data)
 
     def update_section(self, values: dict, section_id: int) -> int:
         return self.db_update(SQL_TABLE_SECTIONS, values, 'section_id=?', [section_id])
@@ -337,11 +363,22 @@ class Section(QueryMixin, QSqlTableModel):
         self.setEditStrategy(self.OnManualSubmit)
 
     def flags(self, index: QModelIndex):
-        flags = Qt.NoItemFlags
-        if index.column() in [2, 3]:
-            return flags
+        if index.column() in (0, 1, 2, 4,):
+            return Qt.NoItemFlags
 
-        return flags | Qt.ItemIsEditable | Qt.ItemIsEnabled
+        return Qt.ItemIsEditable | Qt.ItemIsEnabled
+
+
+    def data(self, index, role):
+        data = super().data(index, role)
+        if role == Qt.TextAlignmentRole:
+            if index.column() in (1, 2, 3,):
+                return Qt.AlignCenter
+        # if role == Qt.EditRole:
+        #     if index.column() == 3:
+        #         # render an dropBox
+        #         return
+        return data
 
 
 class Station(QueryMixin, QSqlTableModel):
@@ -358,11 +395,11 @@ class Station(QueryMixin, QSqlTableModel):
                 length_in REAL,
                 azimuth_in REAL,
                 depth REAL,
-                temperature REAL,
                 azimuth_out REAL,
                 azimuth_out_avg REAL,
                 length_out REAL,
-                station_comment TEXT
+                station_comment TEXT,
+                device_properties TEXT
             )
         """
         # reference_id is the "id" as provider by the Mnemo.
@@ -389,50 +426,37 @@ class Station(QueryMixin, QSqlTableModel):
                        station_properties: dict = {},
                        station_name: str = ''
                        ) -> int:
-        self.select()
-        # do not set breakstations here, you will start inserting multiple records per breakstation.
-        record = self.record()
-        now = datetime.now()
-        record.setValue('station_id', None)
-        record.setValue('section_id', section_id)
-        record.setValue('survey_id', survey_id)
-        record.setValue('section_reference_id', section_reference_id)
-        record.setValue('station_reference_id', station_reference_id)
-        record.setValue('length_in', length_in)
-        record.setValue('length_out', length_out)
-        record.setValue('azimuth_in', azimuth_in)
-        record.setValue('azimuth_out', azimuth_out)
-        record.setValue('azimuth_out_avg', azimuth_out_avg)
-        record.setValue('depth', depth)
-        record.setValue('station_properties', json.dumps(station_properties))
-        record.setValue('station_name', station_name)
+        data = {
+                'station_id': None,
+                'section_id': section_id,
+                'survey_id': survey_id,
+                'section_reference_id': section_reference_id,
+                'station_reference_id': station_reference_id,
+                'length_in': length_in,
+                'length_out': length_out,
+                'azimuth_in': azimuth_in,
+                'azimuth_out': azimuth_out,
+                'azimuth_out_avg': azimuth_out_avg,
+                'depth': depth,
+                'device_properties': json.dumps(station_properties),
+                'station_name': station_name
+            }
 
-        # -1 is set to indicate that it will be added to the last row
-        if self.insertRecord(-1, record):
-            self.submitAll()
-            last_insert_id = self.query().lastInsertId()
-            return last_insert_id
-
-        raise SyntaxError('Database error: Could not insert station')
-
+        return self.db_insert(SQL_TABLE_STATIONS, data)
 
     def update_station(self, values: dict, station_id: int) -> int:
         return self.db_update(SQL_TABLE_STATIONS, values, 'station_id=?', [station_id])
 
-
     def delete_station(self, station_id: int) -> int:
         return self.db_delete(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
 
-
     def dump_table(self):
         return self.db_fetch(f"SELECT * FROM {SQL_TABLE_STATIONS} ORDER BY station_id ASC")
-
 
     def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
         return self.db_insert_bulk(SQL_TABLE_STATIONS, table_data)
-
 
     def get_station(self, station_id) -> dict:
         return self.db_get(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
@@ -446,6 +470,19 @@ class Station(QueryMixin, QSqlTableModel):
         self.setTable(SQL_TABLE_STATIONS)
         self.setEditStrategy(self.OnManualSubmit)
 
+    def flags(self, index: QModelIndex):
+        if index.column() in (0, 1, 2, 3, 4, 13, 7,9):
+            return Qt.NoItemFlags
+
+        return Qt.ItemIsEditable | Qt.ItemIsEnabled
+
+    def data(self, index, role):
+        data = super().data(index, role)
+        if role == Qt.TextAlignmentRole:
+            if index.column() in (0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11,):
+                return Qt.AlignCenter
+
+        return data
 
 class Contact(QueryMixin, QSqlTableModel):
 

@@ -28,8 +28,11 @@ MNEMO_BAUDRATE = 9600
 MNEMO_TIMEOUT = 1
 MNEMO_CYCLE_COUNT = 50
 
+SURVEY_DIRECTION_IN = "In"
+SURVEY_DIRECTION_OUT = "Out"
+
 #SQL_DB_LOCATION = ":memory:"
-SQL_DB_LOCATION = "/tmp/stickmaps.sql"
+SQL_DB_LOCATION = "/tmp/stickmaps.sqlite"
 SQL_CONNECTION_NAME = "qt_sql_default_connection"
 SQL_TABLE_SURVEYS = "surveys"
 SQL_TABLE_SECTIONS = "sections"

@@ -1,6 +1,7 @@
 from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMenu
 
-from Gui.Actions import GlobalActions
+from Gui.Actions import GlobalActions, TreeActions
 
 
 class MainMenu:
@@ -27,7 +28,6 @@ class MainMenu:
         fm.addAction(self._separator())
         fm.addAction(actions.exit_application())
 
-
     def set_edit_menu(self):
         actions = GlobalActions(self.parent_window)
         mb = self.parent_window.menuBar()
@@ -47,3 +47,31 @@ class MainMenu:
         action = QAction()
         action.setSeparator(True)
         return action
+
+
+class ContextMenuSurvey(QMenu):
+    def __init__(self, parent):
+        super().__init__()
+        actions = TreeActions(parent, self)
+        self.addAction(actions.edit_survey())
+        self.addAction(actions.edit_sections())
+        self.addAction(actions.remove_empty_sections())
+        self.addAction(actions.remove_survey())
+
+
+class ContextMenuSection(QMenu):
+    def __init__(self, parent):
+        super().__init__()
+        actions = TreeActions(parent, self)
+        self.addAction(actions.edit_section())
+        self.addAction(actions.edit_stations())
+        self.addAction(actions.remove_section())
+
+
+class ContextMenuStation(QMenu):
+    def __init__(self, parent):
+        super().__init__()
+        actions = TreeActions(parent, self)
+        self.addAction(actions.edit_station())
+        self.addAction(actions.remove_station())
+

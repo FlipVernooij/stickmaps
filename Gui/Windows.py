@@ -1,19 +1,19 @@
 import logging
 
-from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData
+from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal
 from PySide6.QtGui import QIcon, Qt, QCloseEvent, QPalette, QDrag
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
     QAbstractItemView, QMenu, QLabel, QVBoxLayout, QScrollArea, QSizePolicy, QTextBrowser, QPushButton, QComboBox, \
-    QButtonGroup, QHBoxLayout
+    QButtonGroup, QHBoxLayout, QGraphicsView
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
     MAIN_WINDOW_ICON, DEBUG
 from Gui.Actions import TreeActions, GlobalActions
-from Gui.Menus import MainMenu
-from Models.ItemModels import SurveyCollection, SectionItem
+from Gui.Menus import MainMenu, ContextMenuSurvey, ContextMenuSection, ContextMenuStation
+from Models.ItemModels import SectionItem, SurveyCollection
 from Models.TableModels import SqlManager
 from Utils.Logging import LogStream
-from Utils.Rendering import DragImage, ImageTest
+from Utils.Rendering import DragImage, ImageTest, MapScene
 from Utils.Settings import Preferences
 
 
@@ -117,27 +117,25 @@ class SurveyOverview(QTreeView):
         self.setMinimumWidth(TREE_MIN_WIDTH)
 
     def build_contextmenu(self, pos):
-        menu = QMenu(self)
-        # menu.entry = self.tree_view.entry
-        actions = TreeActions(self, menu)
         if len(self.selectedIndexes()) == 0:
             return  # add import menu here!
+
+
 
         index = self.selectedIndexes()[0]
         model = index.model()
         item = model.itemFromIndex(index)
 
+        # if item.item_type == model.ITEM_TYPE_ROOT:
+        #     return
+
         if item.item_type == model.ITEM_TYPE_SURVEY:
-            menu.addAction(actions.edit_survey())
-            menu.addAction(actions.edit_sections())
-            menu.addAction(actions.remove_survey())
+            menu = ContextMenuSurvey(self)
+
         elif item.item_type == model.ITEM_TYPE_SECTION:
-            menu.addAction(actions.edit_section())
-            menu.addAction(actions.edit_stations())
-            menu.addAction(actions.remove_section())
+            menu = ContextMenuSection(self)
         elif item.item_type == model.ITEM_TYPE_STATION:
-            menu.addAction(actions.edit_station())
-            menu.addAction(actions.remove_station())
+            menu = ContextMenuStation(self)
 
         menu.popup(self.mapToGlobal(pos))
 
@@ -157,7 +155,7 @@ class SurveyOverview(QTreeView):
         mime.setProperty('section_name', item.text())
         mime.setText(item.text())
 
-        pixmap = DragImage(section_id=item.section_id, section_name=item.text())
+        pixmap = DragImage(section_id=item.section_id)
         drag.setPixmap(pixmap.get_pixmap())
         drag.setHotSpot(pixmap.get_cursor_location())
         drag.setMimeData(mime)
@@ -165,18 +163,62 @@ class SurveyOverview(QTreeView):
         event.accept()
 
 
-class MapView(QScrollArea):
+class MapView(QGraphicsView):
+
+    #  Received a mouse scroll, should get cursor location (Qpoint?) and the zoom "amount"
+    s_map_scale = Signal(int, QPoint)
+    s_map_rotate = Signal(int, QPoint)
+    s_map_move = Signal(QPoint)
+
+    s_show_stations = Signal(bool)
+    s_show_station_names = Signal(bool)
+    s_show_depths = Signal(bool)
 
     def __init__(self, parent):
         super().__init__(parent)
+        self.log = logging.getLogger(__name__)
+
+        self.map_scale = 1
+        self.map_rotate = 0
+        self.map_move = 0
+
+        self.show_stations = True
+        self.show_station_names = True
+        self.show_depths = True
+
+        self.s_map_move.connect(self.c_map_move)
+        self.s_map_rotate.connect(self.c_map_rotate)
+        self.s_map_scale.connect(self.c_map_scale)
+
+        self.s_show_stations.connect(self.c_show_stations)
+        self.s_show_station_names.connect(self.c_show_station_names)
+        self.s_show_depths.connect(self.c_show_depths)
+
+        self.map_scene = MapScene(self)
+        self.setScene(self.map_scene)
+
         self.setAutoFillBackground(True)
         self.setBackgroundRole(QPalette.Light)
         self.setAcceptDrops(True)
-        self.horizontalScrollBar()
-        self.verticalScrollBar()
-
         self.show()
 
+    def c_map_scale(self, zoom: int, cursor_location: QPoint):
+        self.log.debug(f'Signal map_scale({zoom}, {cursor_location})')
+
+    def c_map_rotate(self, degrees: int, cursor_location: QPoint):
+        self.log.debug(f'Signal map_rotate({degrees}, {cursor_location})')
+
+    def c_map_move(self, move_to: QPoint):
+        self.log.debug(f'Signal map_move({move_to})')
+
+    def c_show_stations(self, show: bool):
+        self.log.debug(f'Signal show_stations({show})')
+
+    def c_show_station_names(self, show: bool):
+        self.log.debug(f'Signal show_station_namess({show})')
+
+    def c_show_depths(self, show: bool):
+        self.log.debug(f'Signal show_depths({show})')
 
     # def event(self, event):
     #     if event.type() not in [event.Type.Enter]:
@@ -201,6 +243,7 @@ class MapView(QScrollArea):
 
     def dropEvent(self, event):
         super().dropEvent(event)
+        return
         mime = event.mimeData()
         survey_id = mime.property('survey_id')
         section_id = mime.property('section_id')
