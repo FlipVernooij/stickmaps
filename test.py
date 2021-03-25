@@ -1,36 +1,34 @@
 import sys
-from pprint import pprint
 
-from PySide6.QtGui import QIcon, QAction
-from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtGui import QStandardItemModel, QStandardItem
+from PySide6.QtWidgets import QApplication, QMainWindow, QTreeView, QDialog
 
-from Gui.Actions import GlobalActions
 
+class MyTreeView(QTreeView):
+    def __init__(self, parent):
+        super().__init__(parent)
+        model = MyModel()
+        self.setModel(model)
+
+
+class MyModel(QStandardItemModel):
+    def __init__(self):
+        super().__init__()
+        self.root_item = self.invisibleRootItem()
+        self.top_level = QStandardItem("Top level")
+        self.root_item.appendRow(self.top_level)
+
+        self.top_level.appendRow(QStandardItem('Appended item'))
+        t = QStandardItem('Inserted item')
+        self.top_level.insertRow(0, t)
 
 class MainApplicationWindow(QMainWindow):
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
         self.setWindowTitle('TEST QAction')
-        self.setWindowIcon(QIcon('Assets/windowIcon.png'))
-
-        mb = self.menuBar()
-        fm = mb.addMenu('File')
-
-        exit_action = QAction('Exit', self)
-        exit_action.setShortcut('Ctrl+Q')
-        exit_action.triggered.connect(self.close)
-
-        fm.addAction(exit_action)
-
-        fm.addAction(GlobalActions.wtf(self))
-        fm.addAction(GlobalActions.mnemo_connect_to(self))
-
-        self.statusBar().showMessage('Loading ...', 5000)
-        self.showMaximized()
-
-    def wtf(self):
-        pprint(self)
-
+        self.tree = MyTreeView(self)
+        self.setCentralWidget(self.tree)
+        self.show()
 
 if __name__ == '__main__':
 

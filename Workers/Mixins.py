@@ -130,5 +130,5 @@ class ThreadWithProgressBar:
     def worker_treeview_reload(self, survey_id):
         # I need to get the treeview somehow.
         model = self.main_window.tree_view.model()
-        model.append_survey_from_db(survey_id)
+        model.import_item().prepend_child(survey_id)
 

@@ -15,11 +15,11 @@ TREE_START_WIDTH = 300
 TREE_MIN_WIDTH = 100
 
 TREE_LIGHT_ICON_SURVEY = 'Assets/surveyIcon.png'
-TREE_LIGHT_ICON_SECTION = 'Assets/sectionIcon.png'
+TREE_LIGHT_ICON_LINE = 'Assets/sectionIcon.png'
 TREE_LIGHT_ICON_STATION = 'Assets/pointIcon.png'
 
 TREE_DARK_ICON_SURVEY = 'Assets/surveyIcon.png'
-TREE_DARK_ICON_SECTION = 'Assets/sectionIcon.png'
+TREE_DARK_ICON_LINE = 'Assets/sectionIcon.png'
 TREE_DARK_ICON_STATION = 'Assets/pointIcon.png'
 
 MNEMO_DEVICE_NAME = "Mnemo"
@@ -34,9 +34,11 @@ SURVEY_DIRECTION_OUT = "Out"
 #SQL_DB_LOCATION = ":memory:"
 SQL_DB_LOCATION = "/tmp/stickmaps.sqlite"
 SQL_CONNECTION_NAME = "qt_sql_default_connection"
-SQL_TABLE_SURVEYS = "surveys"
-SQL_TABLE_SECTIONS = "sections"
-SQL_TABLE_STATIONS = "stations"
+SQL_TABLE_IMPORT_SURVEYS = "import_surveys"
+SQL_TABLE_IMPORT_LINES = "import_lines"
+SQL_TABLE_IMPORT_STATIONS = "import_stations"
+SQL_TABLE_MAP_LINES = "map_lines"
+SQL_TABLE_MAP_STATIONS = "map_stations"
 SQL_TABLE_CONTACTS = "contacts"
 SQL_TABLE_EXPLORERS = "explorers"
 SQL_TABLE_SURVEYORS = "surveyors"

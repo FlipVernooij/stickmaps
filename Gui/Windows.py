@@ -9,8 +9,8 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMes
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
     MAIN_WINDOW_ICON, DEBUG
 from Gui.Actions import TreeActions, GlobalActions
-from Gui.Menus import MainMenu, ContextMenuSurvey, ContextMenuSection, ContextMenuStation
-from Models.ItemModels import SectionItem, SurveyCollection
+from Gui.Menus import MainMenu, ContextMenuSurvey, ContextMenuLine, ContextMenuStation, ContextMenuImports
+from Models.ItemModels import ImportItem, ImportLineItem, ProxyModel
 from Models.TableModels import SqlManager
 from Utils.Logging import LogStream
 from Utils.Rendering import DragImage, ImageTest, MapScene
@@ -110,52 +110,54 @@ class SurveyOverview(QTreeView):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.build_contextmenu)
 
-        model = SurveyCollection(self.main_window.sql_manager)
+        model = ProxyModel(self.main_window.sql_manager)
         self.setModel(model)
 
         self.setMinimumWidth(TREE_START_WIDTH)
         self.setMinimumWidth(TREE_MIN_WIDTH)
 
-    def build_contextmenu(self, pos):
+    def get_selected_item(self):
         if len(self.selectedIndexes()) == 0:
-            return  # add import menu here!
-
-
+            return None
 
         index = self.selectedIndexes()[0]
         model = index.model()
         item = model.itemFromIndex(index)
+        return item
 
-        # if item.item_type == model.ITEM_TYPE_ROOT:
-        #     return
+    def build_contextmenu(self, pos):
+        item = self.get_selected_item()
+        if item is None:
+            return
 
-        if item.item_type == model.ITEM_TYPE_SURVEY:
+        if item.type() == item.ITEM_TYPE_IMPORTS:
+            menu = ContextMenuImports(self)
+        elif item.type() == item.ITEM_TYPE_SURVEY:
             menu = ContextMenuSurvey(self)
-
-        elif item.item_type == model.ITEM_TYPE_SECTION:
-            menu = ContextMenuSection(self)
-        elif item.item_type == model.ITEM_TYPE_STATION:
+        elif item.type() == item.ITEM_TYPE_LINE:
+            menu = ContextMenuLine(self)
+        elif item.type() == item.ITEM_TYPE_STATION:
             menu = ContextMenuStation(self)
 
         menu.popup(self.mapToGlobal(pos))
 
     def mouseMoveEvent(self, event) -> None:
-        item = self.selectedIndexes()
-        if len(item) == 0:
+        item = self.get_selected_item()
+        if item is None:
+            event.ignore()
             return
 
-        item = self.model().itemFromIndex(item[0])
-        if not isinstance(item, SectionItem):
+        if item.type() is not item.ITEM_TYPE_LINE:
             event.ignore()
             return
         drag = QDrag(self)
         mime = QMimeData()
-        mime.setProperty('survey_id', item.survey_id)
-        mime.setProperty('section_id', item.section_id)
-        mime.setProperty('section_name', item.text())
+        mime.setProperty('survey_id', item.survey_id())
+        mime.setProperty('line_id', item.line_id())
+        mime.setProperty('line_name', item.text())
         mime.setText(item.text())
 
-        pixmap = DragImage(section_id=item.section_id)
+        pixmap = DragImage(line_id=item.line_id())
         drag.setPixmap(pixmap.get_pixmap())
         drag.setHotSpot(pixmap.get_cursor_location())
         drag.setMimeData(mime)
@@ -246,10 +248,10 @@ class MapView(QGraphicsView):
         return
         mime = event.mimeData()
         survey_id = mime.property('survey_id')
-        section_id = mime.property('section_id')
-        section_name = mime.property('section_name')
+        line_id = mime.property('line_id')
+        line_name = mime.property('line_name')
 
-        pixmap = ImageTest(section_id=section_id, section_name=section_name)
+        pixmap = ImageTest(line_id=line_id, line_name=line_name)
         image = QLabel('img')
         image.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         image.setScaledContents(True)
@@ -258,7 +260,6 @@ class MapView(QGraphicsView):
 
         event.accept()
         return
-
 
 
 class DebugConsole(QWidget):

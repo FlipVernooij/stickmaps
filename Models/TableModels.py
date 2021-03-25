@@ -5,8 +5,9 @@ from datetime import datetime
 from PySide6.QtCore import QModelIndex, Qt, QSettings, QDateTime
 from PySide6.QtSql import QSqlTableModel, QSqlQuery, QSqlRelationalTableModel, QSqlRelation, QSqlDatabase
 
-from Config.Constants import SQL_TABLE_STATIONS, SQL_TABLE_SECTIONS, SQL_TABLE_SURVEYS, SQL_TABLE_CONTACTS, \
-    SQL_TABLE_EXPLORERS, SQL_TABLE_SURVEYORS, SQL_DB_LOCATION, SQL_CONNECTION_NAME, DEBUG
+from Config.Constants import SQL_TABLE_IMPORT_STATIONS, SQL_TABLE_IMPORT_LINES, SQL_TABLE_IMPORT_SURVEYS, SQL_TABLE_CONTACTS, \
+    SQL_TABLE_EXPLORERS, SQL_TABLE_SURVEYORS, SQL_DB_LOCATION, SQL_CONNECTION_NAME, DEBUG, SQL_TABLE_MAP_LINES, \
+    SQL_TABLE_MAP_STATIONS
 from Utils.Settings import Preferences
 
 
@@ -89,10 +90,12 @@ class QueryMixin:
         obj.exec_()
         return obj.numRowsAffected()
 
-    def db_delete(self, table_name: str, where_str: str, params: list = []) -> int:
+    def db_delete(self, table_name: str, where_str: str = None, params: list = []) -> int:
         settings = QSettings()
         settings.setValue('SaveFile/is_changed', True)
-        query = f'DELETE FROM {table_name} WHERE {where_str}'
+        query = f'DELETE FROM {table_name}'
+        if where_str is not None:
+            query = f'{query} WHERE {where_str}'
         obj = self.db_exec(query, params)
         return obj.numRowsAffected()
 
@@ -148,26 +151,32 @@ class SqlManager:
         return object_name(self.db)
 
     def create_tables(self):
-        self.factor(Survey).create_database_tables()
-        self.factor(Section).create_database_tables()
-        self.factor(Station).create_database_tables()
+        self.factor(ImportSurvey).create_database_tables()
+        self.factor(ImportLine).create_database_tables()
+        self.factor(ImportStation).create_database_tables()
+        self.factor(MapLine).create_database_tables()
+        self.factor(MapStation).create_database_tables()
         self.factor(Contact).create_database_tables()
         self.factor(Surveyor).create_database_tables()
         self.factor(Explorer).create_database_tables()
 
     def drop_tables(self):
-        self.factor(Survey).drop_database_tables()
-        self.factor(Section).drop_database_tables()
-        self.factor(Station).drop_database_tables()
+        self.factor(ImportSurvey).drop_database_tables()
+        self.factor(ImportLine).drop_database_tables()
+        self.factor(ImportStation).drop_database_tables()
+        self.factor(MapLine).drop_database_tables()
+        self.factor(MapStation).drop_database_tables()
         self.factor(Contact).drop_database_tables()
         self.factor(Surveyor).drop_database_tables()
         self.factor(Explorer).drop_database_tables()
 
     def dump_tables(self):
         return {
-            SQL_TABLE_SURVEYS: self.factor(Survey).dump_table(),
-            SQL_TABLE_SECTIONS: self.factor(Section).dump_table(),
-            SQL_TABLE_STATIONS: self.factor(Station).dump_table(),
+            SQL_TABLE_IMPORT_SURVEYS: self.factor(ImportSurvey).dump_table(),
+            SQL_TABLE_IMPORT_LINES: self.factor(ImportLine).dump_table(),
+            SQL_TABLE_IMPORT_STATIONS: self.factor(ImportStation).dump_table(),
+            SQL_TABLE_MAP_LINES: self.factor(MapLine).dump_table(),
+            SQL_TABLE_MAP_STATIONS: self.factor(MapStation).dump_table(),
             SQL_TABLE_CONTACTS: self.factor(Contact).dump_table(),
             SQL_TABLE_SURVEYORS: self.factor(Surveyor).dump_table(),
             SQL_TABLE_EXPLORERS: self.factor(Explorer).dump_table()
@@ -175,9 +184,11 @@ class SqlManager:
 
     def load_table_data(self, data: dict) -> int:
         c = 0
-        c = c + self.factor(Survey).load_table(data[SQL_TABLE_SURVEYS])
-        c = c + self.factor(Section).load_table(data[SQL_TABLE_SECTIONS])
-        c = c + self.factor(Station).load_table(data[SQL_TABLE_STATIONS])
+        c = c + self.factor(ImportSurvey).load_table(data[SQL_TABLE_IMPORT_SURVEYS])
+        c = c + self.factor(ImportLine).load_table(data[SQL_TABLE_IMPORT_LINES])
+        c = c + self.factor(ImportStation).load_table(data[SQL_TABLE_IMPORT_STATIONS])
+        c = c + self.factor(MapLine).load_table(data[SQL_TABLE_MAP_LINES])
+        c = c + self.factor(MapStation).load_table(data[SQL_TABLE_MAP_STATIONS])
         c = c + self.factor(Contact).load_table(data[SQL_TABLE_CONTACTS])
         c = c + self.factor(Explorer).load_table(data[SQL_TABLE_EXPLORERS])
         c = c + self.factor(Surveyor).load_table(data[SQL_TABLE_SURVEYORS])
@@ -202,11 +213,11 @@ class SqlManager:
             raise ConnectionError(f"Database Error: {self.db.lastError()}")
 
 
-class Survey(QueryMixin, QSqlTableModel):
+class ImportSurvey(QueryMixin, QSqlTableModel):
 
     def create_database_tables(self):
-        query = """
-            CREATE TABLE IF NOT EXISTS surveys (
+        query = f"""
+            CREATE TABLE IF NOT EXISTS {SQL_TABLE_IMPORT_SURVEYS} (
                 survey_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_name TEXT,
                 device_properties TEXT,
@@ -219,14 +230,17 @@ class Survey(QueryMixin, QSqlTableModel):
 
     def drop_database_tables(self):
         query = f"""
-                    DROP TABLE IF EXISTS {SQL_TABLE_SURVEYS}
+                    DROP TABLE IF EXISTS {SQL_TABLE_IMPORT_SURVEYS}
                 """
         self.db_exec(query)
 
-    def get_survey(self, survey_id) -> dict:
-        return self.db_get(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
+    def get_all(self) -> list:
+        return self.db_fetch(f'SELECT survey_id, survey_name, device_name FROM {SQL_TABLE_IMPORT_SURVEYS} ORDER BY survey_id DESC', [])
 
-    def insert_survey(self, device_name: str, device_properties: dict = {}) -> int:
+    def get(self, survey_id) -> dict:
+        return self.db_get(SQL_TABLE_IMPORT_SURVEYS, 'survey_id=?', [survey_id])
+
+    def insert(self, device_name: str, device_properties: dict = {}) -> int:
 
         now = datetime.now()
         data = {
@@ -237,44 +251,43 @@ class Survey(QueryMixin, QSqlTableModel):
             'survey_comment': ''
         }
 
-        return self.db_insert(SQL_TABLE_SURVEYS, data)
+        return self.db_insert(SQL_TABLE_IMPORT_SURVEYS, data)
 
-    def update_survey(self, values: dict, survey_id: int) -> int:
-        return self.db_update(SQL_TABLE_SURVEYS, values, 'survey_id=?', [survey_id])
+    def update(self, values: dict, survey_id: int) -> int:
+        return self.db_update(SQL_TABLE_IMPORT_SURVEYS, values, 'survey_id=?', [survey_id])
 
-    def delete_survey(self, survey_id: int) -> int:
-        a = self.db_delete(SQL_TABLE_STATIONS, 'survey_id=?', [survey_id])
-        b = self.db_delete(SQL_TABLE_SECTIONS, 'survey_id=?', [survey_id])
-        c = self.db_delete(SQL_TABLE_SURVEYS, 'survey_id=?', [survey_id])
+    def flush(self):
+        a = self.db_delete(SQL_TABLE_IMPORT_STATIONS)
+        b = self.db_delete(SQL_TABLE_IMPORT_LINES)
+        c = self.db_delete(SQL_TABLE_IMPORT_SURVEYS)
+        return a + b + c
+
+    def delete(self, survey_id: int) -> int:
+        a = self.db_delete(SQL_TABLE_IMPORT_STATIONS, 'survey_id=?', [survey_id])
+        b = self.db_delete(SQL_TABLE_IMPORT_LINES, 'survey_id=?', [survey_id])
+        c = self.db_delete(SQL_TABLE_IMPORT_SURVEYS, 'survey_id=?', [survey_id])
         return a + b + c
 
     def dump_table(self):
-        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id ASC")
-
-    def remove_empty_sections(self, survey_id):
-        q="""
-            DELETE FROM sections WHERE section_id IN (
-                SELECT a.section_id
-                    FROM sections AS a
-                         LEFT JOIN stations AS b ON a.section_id = b.section_id
-                WHERE a.survey_id = ?
-                  AND station_id IS NULL
-            )
-        """
-        logging.getLogger(__name__).info(f'removing empty sections for survey_id={survey_id}')
-        res = self.db_exec(q, [survey_id])
-        return res.numRowsAffected()
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_IMPORT_SURVEYS} ORDER BY survey_id ASC")
 
     def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
-        return self.db_insert_bulk(SQL_TABLE_SURVEYS, table_data)
+        return self.db_insert_bulk(SQL_TABLE_IMPORT_SURVEYS, table_data)
 
     def __init__(self, db):
         QueryMixin.__init__(self, db=db)
         QSqlTableModel.__init__(self, db=db)
-        self.setTable(SQL_TABLE_SURVEYS)
+        self.setTable(SQL_TABLE_IMPORT_SURVEYS)
         self.setEditStrategy(self.OnManualSubmit)
+
+        self.setHeaderData(0, Qt.Horizontal, "Survey ID")
+        self.setHeaderData(1, Qt.Horizontal, "Device name")
+        self.setHeaderData(2, Qt.Horizontal, "Device properties")
+        self.setHeaderData(3, Qt.Horizontal, "Date & time")
+        self.setHeaderData(4, Qt.Horizontal, "Survey name")
+        self.setHeaderData(5, Qt.Horizontal, "Survey comment")
 
     def flags(self, index):
         # this also affects the insert of a record.
@@ -300,74 +313,102 @@ class Survey(QueryMixin, QSqlTableModel):
                 return QDateTime(datetime.fromtimestamp(data))
         if role == Qt.DisplayRole:
             if index.column() == 3:
+                if isinstance(data, QDateTime):
+                    # for some reason, sometimes I get the QDateTime object here..
+                    data = data.toSecsSinceEpoch()
                 return datetime.fromtimestamp(data).ctime()
         return data
 
 
-class Section(QueryMixin, QSqlTableModel):
+class ImportLine(QueryMixin, QSqlTableModel):
 
     def create_database_tables(self):
         query = f"""
-            CREATE TABLE IF NOT EXISTS {SQL_TABLE_SECTIONS} (
-                section_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            CREATE TABLE IF NOT EXISTS {SQL_TABLE_IMPORT_LINES} (
+                line_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 survey_id INTEGER,
-                section_reference_id INTEGER,
+                line_reference_id INTEGER,
                 direction TEXT,
                 device_properties TEXT,
-                section_name TEXT,
-                section_comment TEXT
+                line_name TEXT,
+                line_comment TEXT
             )
         """
         self.db_exec(query)
 
     def drop_database_tables(self):
         query = f"""
-                    DROP TABLE IF EXISTS {SQL_TABLE_SECTIONS}
+                    DROP TABLE IF EXISTS {SQL_TABLE_IMPORT_LINES}
                 """
         self.db_exec(query)
 
-    def get_section(self, section_id) -> dict:
-        return self.db_get(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
-
-    def insert_section(self, survey_id: int, section_reference_id: int, direction: str, device_properties: dict) -> int:
-        data = {
-            'survey_id': survey_id,
-            'section_reference_id': section_reference_id,
-            'direction': direction,
-            'device_properties': json.dumps(device_properties),
-            'section_name': f'Section {section_reference_id}',
-            'section_comment': ''
-        }
-        return self.db_insert(SQL_TABLE_SECTIONS, data)
-
-    def update_section(self, values: dict, section_id: int) -> int:
-        return self.db_update(SQL_TABLE_SECTIONS, values, 'section_id=?', [section_id])
-
-    def delete_section(self, section_id: int) -> int:
-        a = self.db_delete(SQL_TABLE_STATIONS, 'section_id=?', [section_id])
-        b = self.db_delete(SQL_TABLE_SECTIONS, 'section_id=?', [section_id])
-        return a + b
-
     def dump_table(self):
-        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_SECTIONS} ORDER BY section_id ASC")
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_IMPORT_LINES} ORDER BY line_id ASC")
 
     def load_table(self, table_data: list):
         if len(table_data) == 0:
             return 0
-        return self.db_insert_bulk(SQL_TABLE_SECTIONS, table_data)
+        return self.db_insert_bulk(SQL_TABLE_IMPORT_LINES, table_data)
+
+
+    def get(self, line_id) -> dict:
+        return self.db_get(SQL_TABLE_IMPORT_LINES, 'line_id=?', [line_id])
+
+    def get_all(self, survey_id: int) -> list:
+        return self.db_fetch(f'SELECT line_id, line_name FROM {SQL_TABLE_IMPORT_LINES} WHERE survey_id=? ORDER BY line_id ASC', [survey_id])
+
+    def insert(self, survey_id: int, line_reference_id: int, direction: str, device_properties: dict) -> int:
+        data = {
+            'survey_id': survey_id,
+            'line_reference_id': line_reference_id,
+            'direction': direction,
+            'device_properties': json.dumps(device_properties),
+            'line_name': f'Line {line_reference_id}',
+            'line_comment': ''
+        }
+        return self.db_insert(SQL_TABLE_IMPORT_LINES, data)
+
+    def update(self, values: dict, line_id: int) -> int:
+        return self.db_update(SQL_TABLE_IMPORT_LINES, values, 'line_id=?', [line_id])
+
+    def delete(self, line_id: int) -> int:
+        a = self.db_delete(SQL_TABLE_IMPORT_STATIONS, 'line_id=?', [line_id])
+        b = self.db_delete(SQL_TABLE_IMPORT_LINES, 'line_id=?', [line_id])
+        return a + b
+
+    def flush_empty(self, survey_id):
+        q = f"""
+            DELETE FROM {SQL_TABLE_IMPORT_LINES} WHERE line_id IN (
+                SELECT a.line_id
+                    FROM {SQL_TABLE_IMPORT_LINES} AS a
+                         LEFT JOIN {SQL_TABLE_IMPORT_STATIONS} AS b ON a.line_id = b.line_id
+                WHERE a.survey_id = ?
+                  AND station_id IS NULL
+            )
+        """
+        logging.getLogger(__name__).info(f'removing empty lines for survey_id={survey_id}')
+        res = self.db_exec(q, [survey_id])
+        return res.numRowsAffected()
 
     def __init__(self, db):
         QueryMixin.__init__(self, db=db)
         QSqlTableModel.__init__(self, db=db)
-        self.setTable(SQL_TABLE_SECTIONS)
+        self.setTable(SQL_TABLE_IMPORT_LINES)
         self.setEditStrategy(self.OnManualSubmit)
+
+        self.setHeaderData(0, Qt.Horizontal, "Survey id")
+        self.setHeaderData(1, Qt.Horizontal, "Line id")
+        self.setHeaderData(2, Qt.Horizontal, "Device reference id")
+        self.setHeaderData(3, Qt.Horizontal, "Survey direction")
+        self.setHeaderData(4, Qt.Horizontal, "Device properties")
+        self.setHeaderData(5, Qt.Horizontal, "Line name")
+        self.setHeaderData(6, Qt.Horizontal, "Line comment")
 
     def flags(self, index: QModelIndex):
         if index.column() in (0, 1, 2, 4,):
             return Qt.NoItemFlags
 
         return Qt.ItemIsEditable | Qt.ItemIsEnabled
-
 
     def data(self, index, role):
         data = super().data(index, role)
@@ -381,16 +422,16 @@ class Section(QueryMixin, QSqlTableModel):
         return data
 
 
-class Station(QueryMixin, QSqlTableModel):
+class ImportStation(QueryMixin, QSqlTableModel):
 
     def create_database_tables(self):
         query = f"""
-            CREATE TABLE IF NOT EXISTS {SQL_TABLE_STATIONS} (
+            CREATE TABLE IF NOT EXISTS {SQL_TABLE_IMPORT_STATIONS} (
                 station_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                section_id INTEGER,
+                line_id INTEGER,
                 survey_id INTEGER,
                 station_reference_id INTEGER,
-                section_reference_id INTEGER,
+                line_reference_id INTEGER,
                 station_name TEXT,
                 length_in REAL,
                 azimuth_in REAL,
@@ -408,14 +449,22 @@ class Station(QueryMixin, QSqlTableModel):
 
     def drop_database_tables(self):
         query = f"""
-                    DROP TABLE IF EXISTS {SQL_TABLE_STATIONS}
+                    DROP TABLE IF EXISTS {SQL_TABLE_IMPORT_STATIONS}
                 """
         self.db_exec(query)
 
-    def insert_station(self,
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_IMPORT_STATIONS} ORDER BY station_id ASC")
+
+    def load_table(self, table_data: list):
+        if len(table_data) == 0:
+            return 0
+        return self.db_insert_bulk(SQL_TABLE_IMPORT_STATIONS, table_data)
+
+    def insert(self,
                        survey_id: int,
-                       section_id: int,
-                       section_reference_id: int,
+                       line_id: int,
+                       line_reference_id: int,
                        station_reference_id: int,
                        length_in: float,
                        length_out: float,
@@ -428,9 +477,9 @@ class Station(QueryMixin, QSqlTableModel):
                        ) -> int:
         data = {
                 'station_id': None,
-                'section_id': section_id,
+                'line_id': line_id,
                 'survey_id': survey_id,
-                'section_reference_id': section_reference_id,
+                'line_reference_id': line_reference_id,
                 'station_reference_id': station_reference_id,
                 'length_in': length_in,
                 'length_out': length_out,
@@ -442,33 +491,42 @@ class Station(QueryMixin, QSqlTableModel):
                 'station_name': station_name
             }
 
-        return self.db_insert(SQL_TABLE_STATIONS, data)
+        return self.db_insert(SQL_TABLE_IMPORT_STATIONS, data)
 
-    def update_station(self, values: dict, station_id: int) -> int:
-        return self.db_update(SQL_TABLE_STATIONS, values, 'station_id=?', [station_id])
+    def update(self, values: dict, station_id: int) -> int:
+        return self.db_update(SQL_TABLE_IMPORT_STATIONS, values, 'station_id=?', [station_id])
 
-    def delete_station(self, station_id: int) -> int:
-        return self.db_delete(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
+    def delete(self, station_id: int) -> int:
+        return self.db_delete(SQL_TABLE_IMPORT_STATIONS, 'station_id=?', [station_id])
 
-    def dump_table(self):
-        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_STATIONS} ORDER BY station_id ASC")
 
-    def load_table(self, table_data: list):
-        if len(table_data) == 0:
-            return 0
-        return self.db_insert_bulk(SQL_TABLE_STATIONS, table_data)
 
-    def get_station(self, station_id) -> dict:
-        return self.db_get(SQL_TABLE_STATIONS, 'station_id=?', [station_id])
+    def get(self, station_id) -> dict:
+        return self.db_get(SQL_TABLE_IMPORT_STATIONS, 'station_id=?', [station_id])
 
-    def get_stations_for_section(self, section_id: int) -> list:
-        return self.db_fetch(f'SELECT * FROM {SQL_TABLE_STATIONS} WHERE section_id=? ORDER BY station_id ASC', [section_id])
+    def get_all(self, line_id) -> dict:
+        return self.db_fetch(f'SELECT * FROM {SQL_TABLE_IMPORT_STATIONS} WHERE line_id=? ORDER BY station_id ASC', [line_id])
 
     def __init__(self, db):
         QueryMixin.__init__(self, db=db)
         QSqlTableModel.__init__(self, db=db)
-        self.setTable(SQL_TABLE_STATIONS)
+        self.setTable(SQL_TABLE_IMPORT_STATIONS)
         self.setEditStrategy(self.OnManualSubmit)
+
+        self.setHeaderData(0, Qt.Horizontal, "Station id")
+        self.setHeaderData(1, Qt.Horizontal, "Line id")
+        self.setHeaderData(2, Qt.Horizontal, "Survey id")
+        self.setHeaderData(3, Qt.Horizontal, "Device reference id")
+        self.setHeaderData(4, Qt.Horizontal, "Device line reference id")
+        self.setHeaderData(5, Qt.Horizontal, "Station name")
+        self.setHeaderData(6, Qt.Horizontal, "Length in")
+        self.setHeaderData(7, Qt.Horizontal, "Azimuth in")
+        self.setHeaderData(8, Qt.Horizontal, "Depth")
+        self.setHeaderData(9, Qt.Horizontal, "Azimuth out")
+        self.setHeaderData(10, Qt.Horizontal, "Azimuth")
+        self.setHeaderData(11, Qt.Horizontal, "Length out")
+        self.setHeaderData(12, Qt.Horizontal, "Station Comment")
+        self.setHeaderData(13, Qt.Horizontal, "Device properties")
 
     def flags(self, index: QModelIndex):
         if index.column() in (0, 1, 2, 3, 4, 13, 7,9):
@@ -483,6 +541,143 @@ class Station(QueryMixin, QSqlTableModel):
                 return Qt.AlignCenter
 
         return data
+
+
+class MapLine(QueryMixin, QSqlTableModel):
+    def create_database_tables(self):
+        query = f"""
+            CREATE TABLE IF NOT EXISTS {SQL_TABLE_MAP_LINES} (
+                line_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                line_reference_id INTEGER,
+                direction TEXT,
+                device_properties TEXT,
+                line_name TEXT,
+                line_comment TEXT,
+                line_color TEXT
+            )
+        """
+        self.db_exec(query)
+
+    def drop_database_tables(self):
+        query = f"""
+                    DROP TABLE IF EXISTS {SQL_TABLE_MAP_LINES}
+                """
+        self.db_exec(query)
+
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_MAP_LINES} ORDER BY line_id ASC")
+
+    def load_table(self, table_data: list):
+        if len(table_data) == 0:
+            return 0
+        return self.db_insert_bulk(SQL_TABLE_MAP_LINES, table_data)
+
+    def get(self, line_id) -> dict:
+        return self.db_get(SQL_TABLE_MAP_LINES, 'line_id=?', [line_id])
+
+    def get_all(self) -> list:
+        return self.db_fetch(f'SELECT line_id, line_name FROM {SQL_TABLE_MAP_LINES} ORDER BY line_id ASC')
+
+    def insert(self, line_reference_id: int, direction: str, device_properties: dict) -> int:
+        data = {
+            'line_reference_id': line_reference_id,
+            'direction': direction,
+            'device_properties': json.dumps(device_properties),
+            'line_name': f'Line {line_reference_id}',
+            'line_comment': ''
+        }
+        return self.db_insert(SQL_TABLE_MAP_LINES, data)
+
+    def update(self, values: dict, line_id: int) -> int:
+        return self.db_update(SQL_TABLE_MAP_LINES, values, 'line_id=?', [line_id])
+
+    def delete(self, line_id: int) -> int:
+        a = self.db_delete(SQL_TABLE_MAP_STATIONS, 'line_id=?', [line_id])
+        b = self.db_delete(SQL_TABLE_MAP_LINES, 'line_id=?', [line_id])
+        return a + b
+
+
+class MapStation(QueryMixin, QSqlTableModel):
+    def create_database_tables(self):
+        query = f"""
+            CREATE TABLE IF NOT EXISTS {SQL_TABLE_MAP_STATIONS} (
+                station_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                line_id INTEGER,
+                station_reference_id INTEGER,
+                line_reference_id INTEGER,
+                station_name TEXT,
+                length_in REAL,
+                azimuth_in REAL,
+                depth REAL,
+                azimuth_out REAL,
+                azimuth_out_avg REAL,
+                length_out REAL,
+                station_comment TEXT,
+                device_properties TEXT,
+                connects_with_station_id INTEGER DEFAULT NULL,
+                connects_with_line_id INTEGER DEFAULT NULL
+            )
+        """
+        self.db_exec(query)
+
+    def drop_database_tables(self):
+        query = f"""
+                    DROP TABLE IF EXISTS {SQL_TABLE_MAP_STATIONS}
+                """
+        self.db_exec(query)
+
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_MAP_STATIONS} ORDER BY station_id ASC")
+
+    def load_table(self, table_data: list):
+        if len(table_data) == 0:
+            return 0
+        return self.db_insert_bulk(SQL_TABLE_MAP_STATIONS, table_data)
+
+    def insert(self,
+               survey_id: int,
+               line_id: int,
+               line_reference_id: int,
+               station_reference_id: int,
+               length_in: float,
+               length_out: float,
+               azimuth_in: float,
+               azimuth_out: float,
+               azimuth_out_avg: float,
+               depth: float,
+               station_properties: dict = {},
+               station_name: str = ''
+               ) -> int:
+        data = {
+            'station_id': None,
+            'line_id': line_id,
+            'survey_id': survey_id,
+            'line_reference_id': line_reference_id,
+            'station_reference_id': station_reference_id,
+            'length_in': length_in,
+            'length_out': length_out,
+            'azimuth_in': azimuth_in,
+            'azimuth_out': azimuth_out,
+            'azimuth_out_avg': azimuth_out_avg,
+            'depth': depth,
+            'device_properties': json.dumps(station_properties),
+            'station_name': station_name
+        }
+
+        return self.db_insert(SQL_TABLE_MAP_STATIONS, data)
+
+    def update(self, values: dict, station_id: int) -> int:
+        return self.db_update(SQL_TABLE_MAP_STATIONS, values, 'station_id=?', [station_id])
+
+    def delete(self, station_id: int) -> int:
+        return self.db_delete(SQL_TABLE_MAP_STATIONS, 'station_id=?', [station_id])
+
+    def get(self, station_id) -> dict:
+        return self.db_get(SQL_TABLE_MAP_STATIONS, 'station_id=?', [station_id])
+
+    def get_all(self, line_id) -> dict:
+        return self.db_fetch(f'SELECT * FROM {SQL_TABLE_MAP_STATIONS} WHERE line_id=? ORDER BY station_id ASC', [line_id])
+
 
 class Contact(QueryMixin, QSqlTableModel):
 
@@ -578,5 +773,5 @@ class Surveyor(QueryMixin, QSqlRelationalTableModel):
     def __init__(self, db):
         QueryMixin.__init__(self, db=db)
         QSqlRelationalTableModel.__init__(self, db=db)
-        self.setRelation(1, QSqlRelation(SQL_TABLE_SURVEYS, 'survey_id', 'name'))
+        self.setRelation(1, QSqlRelation(SQL_TABLE_IMPORT_SURVEYS, 'survey_id', 'name'))
         self.setRelation(2, QSqlRelation(SQL_TABLE_CONTACTS, 'contact_id', 'name'))

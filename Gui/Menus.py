@@ -49,23 +49,31 @@ class MainMenu:
         return action
 
 
+class ContextMenuImports(QMenu):
+    def __init__(self, parent):
+        super().__init__()
+        actions = TreeActions(parent, self)
+        self.addAction(actions.edit_surveys())
+        self.addAction(actions.remove_surveys())
+
+
 class ContextMenuSurvey(QMenu):
     def __init__(self, parent):
         super().__init__()
         actions = TreeActions(parent, self)
         self.addAction(actions.edit_survey())
-        self.addAction(actions.edit_sections())
-        self.addAction(actions.remove_empty_sections())
+        self.addAction(actions.edit_lines())
+        self.addAction(actions.remove_empty_lines())
         self.addAction(actions.remove_survey())
 
 
-class ContextMenuSection(QMenu):
+class ContextMenuLine(QMenu):
     def __init__(self, parent):
         super().__init__()
         actions = TreeActions(parent, self)
-        self.addAction(actions.edit_section())
+        self.addAction(actions.edit_line())
         self.addAction(actions.edit_stations())
-        self.addAction(actions.remove_section())
+        self.addAction(actions.remove_line())
 
 
 class ContextMenuStation(QMenu):

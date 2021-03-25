@@ -1,171 +1,410 @@
-from PySide6.QtCore import QMimeData
-from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon, QDrag
-from PySide6.QtWidgets import QMessageBox, QApplication
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon
+from PySide6.QtWidgets import QApplication
 
-from Config.Constants import SQL_TABLE_SURVEYS, SQL_TABLE_SECTIONS, SQL_TABLE_STATIONS, TREE_DARK_ICON_SURVEY,\
-    TREE_DARK_ICON_SECTION, TREE_DARK_ICON_STATION, TREE_LIGHT_ICON_SURVEY, TREE_LIGHT_ICON_SECTION, \
+from Config.Constants import TREE_DARK_ICON_SURVEY,\
+    TREE_DARK_ICON_LINE, TREE_DARK_ICON_STATION, TREE_LIGHT_ICON_SURVEY, TREE_LIGHT_ICON_LINE, \
     TREE_LIGHT_ICON_STATION
-from .TableModels import Survey, Section, Station
+from .TableModels import ImportSurvey, ImportLine, ImportStation, SqlManager, MapLine, MapStation
 
 
-class SectionItem(QStandardItem):
+class ItemMixin:
+    MODEL_TYPE_IMPORT = 0
+    MODEL_TYPE_MAP = 1
 
-    def __init__(self, icon, row, survey_id: int, section_id: int):
-        super().__init__(icon, row)
-        self.item_type = SurveyCollection.ITEM_TYPE_SECTION
-        self.survey_id = survey_id
-        self.section_id = section_id
-        # self.drag = QDrag(self)
-        # self.mime_data = QMimeData()
-        # self.mime_data.setProperty("section_id", section_id)
-        # self.drag.setMimeData(self.mime_data)
+    ITEM_TYPE_IMPORTS = QStandardItem.UserType + 5
+    ITEM_TYPE_MAPS = QStandardItem.UserType + 6
+    ITEM_TYPE_ROOT = QStandardItem.UserType + 10
+    ITEM_TYPE_STATION = QStandardItem.UserType + 20
+    ITEM_TYPE_LINE = QStandardItem.UserType + 30
+    ITEM_TYPE_SURVEY = QStandardItem.UserType + 40
 
-    def event(self, event):
-        foo = 1
+    DARK_ICONS = {
+        ITEM_TYPE_STATION: TREE_DARK_ICON_STATION,
+        ITEM_TYPE_LINE: TREE_DARK_ICON_LINE,
+        ITEM_TYPE_SURVEY: TREE_DARK_ICON_SURVEY,
+        ITEM_TYPE_IMPORTS: TREE_DARK_ICON_STATION,
+        ITEM_TYPE_MAPS: TREE_DARK_ICON_LINE,
+    }
 
+    LIGHT_ICONS = {
+        ITEM_TYPE_STATION: TREE_LIGHT_ICON_STATION,
+        ITEM_TYPE_LINE: TREE_LIGHT_ICON_LINE,
+        ITEM_TYPE_SURVEY: TREE_LIGHT_ICON_SURVEY,
+        ITEM_TYPE_IMPORTS: TREE_LIGHT_ICON_STATION,
+        ITEM_TYPE_MAPS: TREE_LIGHT_ICON_LINE,
+    }
 
-class SurveyCollection(QStandardItemModel):
+    CHILD_APPEND = 1
+    CHILD_PREPEND = -1
 
-    ITEM_TYPE_STATION = 1
-    ITEM_TYPE_SECTION = 2
-    ITEM_TYPE_SURVEY = 4
-
-    def __init__(self, sql_manager):
-        super().__init__()
-        self.sql_manager = sql_manager
-        self.load_model()
-
-    def set_sql_manager(self, manager):
-        self.sql_manager = manager
-        print(manager.connection_name)
-
-    def load_model(self, survey_id: int = None):
+    def get_icon(self, item_type: int) -> str:
         if QApplication.instance().palette().text().color().name() == '#ffff':
-            # probably dark theme
-            survey_icon = QIcon(TREE_DARK_ICON_SURVEY)
-            section_icon = QIcon(TREE_DARK_ICON_SECTION)
-            station_icon = QIcon(TREE_DARK_ICON_STATION)
-        else:
-            # probably light theme
-            survey_icon = QIcon(TREE_LIGHT_ICON_SURVEY)
-            section_icon = QIcon(TREE_LIGHT_ICON_SECTION)
-            station_icon = QIcon(TREE_LIGHT_ICON_STATION)
+            return QIcon(self.DARK_ICONS[item_type])
+        return QIcon(self.LIGHT_ICONS[item_type])
 
-        survey_db = self.sql_manager.factor(Survey)
-        section_db = self.sql_manager.factor(Section)
-        station_db = self.sql_manager.factor(Station)
-        if survey_id is None:
-            survey_rows = survey_db.db_fetch(f'SELECT survey_id, survey_name, device_name FROM {SQL_TABLE_SURVEYS} ORDER BY survey_id DESC', [])
-        else:
-            survey_rows = [survey_db.get_survey(survey_id)]
 
-        for survey_row in survey_rows:
-            survey = QStandardItem(survey_icon, survey_row['survey_name'])
-            survey.setDragEnabled(False)
-            survey.survey_id = survey_row['survey_id']
-            survey.item_type = self.ITEM_TYPE_SURVEY
-            section_rows = section_db.db_fetch(f'SELECT section_id, section_name FROM {SQL_TABLE_SECTIONS} WHERE survey_id={survey_row["survey_id"]}')
-            for section_row in section_rows:
-                section = SectionItem(section_icon, section_row['section_name'],survey_row['survey_id'], section_row['section_id'])
+class MapStationItem(QStandardItem, ItemMixin):
 
-                station_rows = station_db.db_fetch(
-                    f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_row["section_id"]}')
-                for station_row in station_rows:
-                    station = QStandardItem(station_icon,  station_row['station_name'])
-                    station.setDragEnabled(False)
-                    station.item_type = self.ITEM_TYPE_STATION
-                    station.survey_id = survey_row['survey_id']
-                    station.section_id = section_row['section_id']
-                    station.station_id = station_row['station_id']
-                    section.appendRow(station)
-                survey.appendRow(section)
-            if survey_id is None:
-                self.appendRow(survey)
-            else:
-                self.insertRow(0, survey)
+    def __init__(self, parent: QStandardItem, station_row: dict):
+        super().__init__(self.get_icon(self.type()), station_row['station_name'])
+        self._parent = parent
+        self._child_model = self._get_sql_manager().factor(MapStation)
+        self._item_data = station_row
 
-    def reload_model(self):
+    def type(self) -> int:
+        return self.ITEM_TYPE_STATION
+
+    def type_root(self) -> int:
+        return self._parent.type_root()
+
+    def line_id(self) -> int:
+        return self._parent.line_id()
+
+    def station_id(self) -> int:
+        return self._item_data['station_id']
+
+    def remove(self):
+        self.parent().removeRow(self.row())
+
+    def model(self):
+        return self._child_model
+
+    def _get_sql_manager(self) -> SqlManager:
+        return self._parent._get_sql_manager()
+
+
+class MapLineItem(QStandardItem, ItemMixin):
+
+    def __init__(self, parent: QStandardItem, line_row: dict):
+        super().__init__(self.get_icon(self.type()), line_row['line_name'])
+        self._parent = parent
+        self._child_model = self._get_sql_manager().factor(MapStation)
+        self._item_data = line_row
+        self._children = {}
+
+        self.append_children()
+
+    def type(self) -> int:
+        return self.ITEM_TYPE_LINE
+
+    def type_root(self) -> int:
+        return self._parent.type_root()
+
+    def _get_sql_manager(self) -> SqlManager:
+        return self._parent._get_sql_manager()
+
+    def line_id(self) -> int:
+        return self._item_data['line_id']
+
+    def update(self, name: str):
+        self.setText(name)
+
+    def remove(self):
+        self.parent().removeRow(self.row())
+
+    def update_children(self):
         self.removeRows(0, self.rowCount())
-        self.load_model()
+        self.append_children()
 
-    def append_survey_from_db(self, survey_id):
-        self.load_model(survey_id)
+    def append_children(self):
+        rows = self._child_model.get_all(self.line_id())
+        for row in rows:
+            self._add_child(self.CHILD_APPEND, row)
 
-    def update_survey(self, data: dict, index):
-        row = data.copy()
-        survey_id = row['survey_id']
-        del row['survey_id']
-        self.sql_manager.factor(Survey).update_survey(row,  survey_id)
-        ## We need to call setData() on self and not on the item.
-        ## the DataChanged doesn't bubble up as you would expect.
-        self.setData(index, row['survey_name'])
-        return
+    def prepend_child(self, station_id: int):
+        row = self._child_model.get(station_id)
+        self._add_child(self.CHILD_PREPEND, row)
 
-    def delete_survey(self, item: QStandardItem) -> int:
-        survey_id = item.survey_id
-        num_rows = self.sql_manager.factor(Survey).delete_survey(survey_id)
+    def append_child(self, station_id: int):
+        row = self._child_model.get(station_id)
+        self._add_child(self.CHILD_APPEND, row)
 
-        self.removeRows(item.row(), 1)
+    def model(self):
+        return self._get_sql_manager().factor(MapLine)
 
-        return num_rows
+    def child_model(self):
+        return self._child_model
 
-    def reload_sections(self, survey_item: QStandardItem) -> int:
-        survey_id = survey_item.survey_id
-        item = survey_item
-        count = item.rowCount()
+    def _add_child(self, mode: int, row: dict):
+        item = MapStationItem(self, row)
+        self._children[f'id_{row["station_id"]}'] = item
+        if mode is self.CHILD_APPEND:
+            return self.appendRow(item)
+        return self.insertRow(0, item)
 
-        section_rows = self.sql_manager.factor(Section).db_fetch(f'SELECT section_id, section_name FROM {SQL_TABLE_SECTIONS} WHERE survey_id={survey_id}')
 
-        for i in range(count):
-            section_item = item.child(i)
-            if section_rows[i]['section_id'] == section_item.section_id:
-                self.setData(section_item.index(), section_rows[i]['section_name'])
-            else:
-                QMessageBox.warning('Error', f"Mmm section mismatch {section_rows[i]['section_id']} != {section_item.section_id}")
-                break
+class ImportStationItem(QStandardItem, ItemMixin):
 
-    def update_section(self, data: dict, index):
-        row = data.copy()
-        section_id = row['section_id']
-        del row['section_id']
-        self.sql_manager.factor(Section).update_section(row,  section_id)
-        ## We need to call setData() on self and not on the item.
-        ## the DataChanged doesn't bubble up as you would expect.
-        self.setData(index, row['section_name'])
-        return
+    def __init__(self, parent: QStandardItem, station_row: dict):
+        super().__init__(self.get_icon(self.type()), station_row['station_name'])
+        self._parent = parent
+        self._child_model = self._get_sql_manager().factor(ImportStation)
+        self._item_data = station_row
 
-    def delete_section(self, item: QStandardItem) -> int:
-        section_id = item.section_id
-        num_rows = self.sql_manager.factor(Section).delete_section(section_id)
-        self.removeRows(item.row(), 1, item.parent().index())
-        return num_rows
+    def type(self) -> int:
+        return self.ITEM_TYPE_STATION
 
-    def reload_stations(self, section_item: QStandardItem) -> int:
-        section_id = section_item.section_id
-        item = section_item
-        count = item.rowCount()
+    def type_root(self) -> int:
+        return self._parent.type_root()
 
-        station_rows = self.sql_manager.factor(Station).db_fetch(f'SELECT station_id, station_name FROM {SQL_TABLE_STATIONS} WHERE section_id={section_id}')
+    def survey_id(self) -> int:
+        return self._parent.survey_id()
 
-        for i in range(count):
-            station_item = item.child(i)
-            if station_rows[i]['station_id'] == station_item.station_id:
-                self.setData(station_item.index(), station_rows[i]['station_name'])
-            else:
-                QMessageBox.warning('Error', f"Mmm station mismatch {station_rows[i]['station_id']} != {station_item.station_id}")
-                break
+    def line_id(self) -> int:
+        return self._parent.line_id()
 
-    def update_station(self, data: dict, index):
-        row = data.copy()
-        station_id = row['section_id']
-        del row['station_id']
-        self.sql_manager.factor(Station).update_station(row, station_id)
-        self.setData(index, row['station_name'])
-        return
+    def station_id(self) -> int:
+        return self._item_data['station_id']
 
-    def delete_station(self, item: QStandardItem) -> int:
-        station_id = item.station_id
-        num_rows = self.sql_manager.factor(Station).delete_station(station_id)
-        self.removeRows(item.row(), 1, item.parent().index())
-        return num_rows
+    def remove(self):
+        self.parent().removeRow(self.row())
+
+    def model(self):
+        return self._child_model
+
+    def _get_sql_manager(self) -> SqlManager:
+        return self._parent._get_sql_manager()
+
+
+class ImportLineItem(QStandardItem, ItemMixin):
+
+    def __init__(self, parent: QStandardItem, line_row: dict):
+        super().__init__(self.get_icon(self.type()), line_row['line_name'])
+        self._parent = parent
+        self._child_model = self._get_sql_manager().factor(ImportStation)
+        self._item_data = line_row
+        self._children = {}
+
+        self.append_children()
+
+    def type(self) -> int:
+        return self.ITEM_TYPE_LINE
+
+    def type_root(self) -> int:
+        return self._parent.type_root()
+
+    def _get_sql_manager(self) -> SqlManager:
+        return self._parent._get_sql_manager()
+
+    def survey_id(self) -> int:
+        return self._parent.survey_id()
+
+    def line_id(self) -> int:
+        return self._item_data['line_id']
+
+    def update(self, name: str):
+        self.setText(name)
+
+    def remove(self):
+        self.parent().removeRow(self.row())
+
+    def update_children(self):
+        self.removeRows(0, self.rowCount())
+        self.append_children()
+
+    def append_children(self):
+        rows = self._child_model.get_all(self.line_id())
+        for row in rows:
+            self._add_child(self.CHILD_APPEND, row)
+
+    def prepend_child(self, station_id: int):
+        row = self._child_model.get(station_id)
+        self._add_child(self.CHILD_PREPEND, row)
+
+    def append_child(self, station_id: int):
+        row = self._child_model.get(station_id)
+        self._add_child(self.CHILD_APPEND, row)
+
+    def model(self):
+        return self._get_sql_manager().factor(ImportLine)
+
+    def child_model(self):
+        return self._child_model
+
+    def _add_child(self, mode: int, row: dict):
+        item = ImportStationItem(self, row)
+        self._children[f'id_{row["station_id"]}'] = item
+        if mode is self.CHILD_APPEND:
+            return self.appendRow(item)
+        return self.insertRow(0, item)
+
+
+class ImportSurveyItem(QStandardItem, ItemMixin):
+
+    def __init__(self, parent: QStandardItem, survey_row: dict):
+        super().__init__(self.get_icon(self.type()), survey_row['survey_name'])
+        self._parent = parent
+        self._child_model = self._get_sql_manager().factor(ImportLine)
+        self._item_data = survey_row
+        self._children = {}
+
+        self.append_children()
+
+    def type(self) -> int:
+        return self.ITEM_TYPE_SURVEY
+
+    def type_root(self) -> int:
+        return self._parent.type_root()
+
+    def _get_sql_manager(self) -> SqlManager:
+        return self._parent._get_sql_manager()
+
+    def survey_id(self) -> int:
+        return self._item_data['survey_id']
+
+    def update(self, name: str):
+        self.setText(name)
+
+    def remove(self):
+        self.parent().removeRow(self.row())
+
+    def append_children(self):
+        rows = self._child_model.get_all(self.survey_id())
+        for row in rows:
+            self._add_child(self.CHILD_APPEND, row)
+
+    def update_children(self):
+        self.removeRows(0, self.rowCount())
+        self.append_children()
+
+    def prepend_child(self, line_id: int):
+        row = self._child_model.get(line_id)
+        self._add_child(self.CHILD_PREPEND, row)
+
+    def append_child(self, line_id: int):
+        row = self._child_model.get(line_id)
+        self._add_child(self.CHILD_APPEND, row)
+
+    def model(self):
+        return self._get_sql_manager().factor(ImportSurvey)
+
+    def child_model(self):
+        return self._child_model
+
+    def _add_child(self, mode: int, row: dict):
+        item = ImportLineItem(self, row)
+        self._children[f'id_{row["line_id"]}'] = item
+        if mode is self.CHILD_APPEND:
+            return self.appendRow(item)
+        return self.insertRow(0, item)
+
+
+class ImportItem(QStandardItem, ItemMixin):
+
+    def __init__(self, parent):
+        super().__init__(self.get_icon(self.type()), "Import data")
+        self._parent = parent
+        self._child_model = self._get_sql_manager().factor(ImportSurvey)
+        self.surveys = {}
+        self.append_children()
+
+    def type(self) -> int:
+        return self.ITEM_TYPE_IMPORTS
+
+    def type_root(self) -> int:
+        return self.ITEM_TYPE_IMPORTS
+
+    def append_children(self):
+        survey_rows = self._child_model.get_all()
+        for survey_row in survey_rows:
+            self._add_child(self.CHILD_APPEND, survey_row)
+
+    def update_children(self):
+        self.removeRows(0, self.rowCount())
+        self.append_children()
+
+    def prepend_child(self, survey_id: int):
+        survey_data = self._child_model.get(survey_id)
+        self._add_child(self.CHILD_PREPEND, survey_data)
+
+    def append_child(self, survey_id: int):
+        survey_data = self._child_model.get(survey_id)
+        self._add_child(self.CHILD_APPEND, survey_data)
+
+    def delete_children(self):
+        self.removeRows(0, self.rowCount())
+
+    def model(self):
+        return self.child_model()
+
+    def child_model(self):
+        return self._child_model
+
+    def _add_child(self, mode: int, row: dict):
+        item = ImportSurveyItem(self, row)
+        self.surveys[f'id_{row["survey_id"]}'] = item
+        if mode is self.CHILD_APPEND:
+            return self.appendRow(item)
+        return self.insertRow(0, item)
+
+    def _get_sql_manager(self) -> SqlManager:
+        return self._parent._get_sql_manager()
+
+
+class MapsItem(QStandardItem, ItemMixin):
+
+    def __init__(self, parent):
+        super().__init__(self.get_icon(self.type()), "Map data")
+        self._parent = parent
+        self._children = {}
+        self._child_model = self._get_sql_manager().factor(MapLine)
+        self.append_children()
+
+    def type(self) -> int:
+        return self.ITEM_TYPE_MAPS
+
+    def type_root(self) -> int:
+        return self.ITEM_TYPE_MAP
+
+    def append_children(self):
+        rows = self._child_model.get_all()
+        for row in rows:
+            self._add_child(self.CHILD_APPEND, row)
+
+    def prepend_child(self, line_id: int):
+        row = self._child_model.get(line_id)
+        self._add_child(self.CHILD_PREPEND, row)
+
+    def append_child(self, line_id: int):
+        row = self._child_model.get(line_id)
+        self._add_child(self.CHILD_APPEND, row)
+
+    def model(self):
+        return self.child_model()
+
+    def child_model(self):
+        return self._child_model
+
+    def _add_child(self, mode: int, row: dict):
+        item = MapLineItem(self, row)
+        self._children[f'id_{row["line_id"]}'] = item
+        if mode is self.CHILD_APPEND:
+            return self.appendRow(item)
+        return self.insertRow(0, item)
+
+    def _get_sql_manager(self) -> SqlManager:
+        return self._parent._get_sql_manager()
+
+
+class ProxyModel(QStandardItemModel, ItemMixin):
+
+    def __init__(self, sql_manager: SqlManager):
+        super().__init__()
+        self._sql_manager = sql_manager
+        self._import_item = ImportItem(self)
+        self._map_item = MapsItem(self)
+
+        self.appendRow(self._import_item)
+        self.appendRow(self._map_item)
+
+    def import_item(self) -> ImportItem:
+        return self._import_item
+
+    def map_item(self) -> MapsItem:
+        return self._map_item
+
+    def _get_sql_manager(self) -> SqlManager:
+        return self._sql_manager
+
+
 

@@ -1,20 +1,19 @@
 import os
 import pathlib
 
-from PySide6.QtCore import QSettings, QObject, QThread
+from PySide6.QtCore import QSettings
 from PySide6.QtGui import QAction
 
-from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialog, QProgressDialog
+from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialog
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, APPLICATION_FILE_EXTENSION, \
     MAIN_WINDOW_TITLE, MNEMO_BAUDRATE, MNEMO_TIMEOUT
 from Config.KeyboardShortcuts import KEY_IMPORT_MNEMO_CONNECT, KEY_IMPORT_MNEMO_DUMP_FILE, KEY_QUIT_APPLICATION, \
     KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW, KEY_IMPORT_MNEMO_DUMP, KEY_PREFERENCES
-from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditSectionsDialog, EditSectionDialog, EditStationsDialog, \
+from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditLinesDialog, EditLineDialog, EditStationsDialog, \
     EditStationDialog, PreferencesDialog
 from Gui.Dialogs import EditSurveysDialog
 from Importers.Mnemo import MnemoImporter
-from Models.TableModels import SqlManager, Section, Survey
 from Utils.Settings import Preferences
 from Utils.Storage import SurveyData
 from Workers.Mixins import ThreadWithProgressBar
@@ -287,14 +286,42 @@ class TreeActions:
         self.tree_view = tree_view
         self.remove_alert = None
 
+    def get_selected_item(self):
+        index = self.tree_view.selectedIndexes()[0]
+        return index.model().itemFromIndex(index)
+
+    def edit_surveys(self):
+        action = QAction('Edit surveys', self.context_menu)
+        action.triggered.connect(lambda: self.edit_surveys_callback())
+        return action
+
+    def edit_surveys_callback(self):
+        dialog = EditSurveysDialog(self.tree_view, self.get_selected_item())
+        dialog.show()
+
+    def remove_surveys(self):
+        action = QAction('Delete surveys', self.context_menu)
+        action.triggered.connect(lambda: self.remove_surveys_callback())
+        return action
+
+    def remove_surveys_callback(self):
+        msg = QMessageBox(QMessageBox.Warning, "Delete Surveys", "<h3>Are you sure?</h3><p>Deleting all Surveys will delete all containing Lines and Points.</p>", QMessageBox.Ok | QMessageBox.Cancel)
+        self.remove_alert = msg
+        if msg.exec_() == QMessageBox.Ok:
+            item = self.get_selected_item()
+            num_rows = item.model().flush()
+            item.delete_children()
+            self.tree_view.parent().parent().statusBar().showMessage(f'Removed surveys, deleted {num_rows} rows from database.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+
+        self.remove_alert.close()
+
     def edit_survey(self):
         action = QAction('edit survey', self.context_menu)
         action.triggered.connect(lambda: self.edit_survey_callback())
         return action
 
     def edit_survey_callback(self):
-        index = self.tree_view.selectedIndexes()[0]
-        form = EditSurveyDialog(self.tree_view, index.model().itemFromIndex(index))
+        form = EditSurveyDialog(self.tree_view, self.get_selected_item())
         form.show()
 
     def remove_survey(self):
@@ -303,78 +330,70 @@ class TreeActions:
         return action
 
     def remove_survey_callback(self):
-        msg = QMessageBox()
+        msg = QMessageBox(
+            QMessageBox.Warning,
+            "Delete Survey",
+            "<h3>Are you sure?</h3><p>Deleting this Survey will delete all containing Lines and Points.</p>",
+            QMessageBox.Ok | QMessageBox.Cancel
+        )
         self.remove_alert = msg
-        msg.setIcon(QMessageBox.Warning)
-
-        msg.setText("Are you sure?")
-        msg.setInformativeText("Deleting this Survey will delete all containing Sections and Points.")
-        msg.setWindowTitle("Delete Survey")
-        #msg.setDetailedText("The details are as follows:")
-        msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         if msg.exec_() == QMessageBox.Ok:
-            index = self.tree_view.selectedIndexes()[0]
-            item = index.model().itemFromIndex(index)
-            num_rows = item.model().delete_survey(item)
+            item = self.get_selected_item()
+            num_rows = item.model().delete(item.survey_id())
+            item.remove()
             self.tree_view.parent().parent().statusBar().showMessage(f'Removed survey, deleted {num_rows} rows from database.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
         self.remove_alert.close()
 
-    def edit_sections(self):
-        action = QAction('edit sections', self.context_menu)
-        action.triggered.connect(lambda: self.edit_sections_callback())
+    def edit_lines(self):
+        action = QAction('edit lines', self.context_menu)
+        action.triggered.connect(lambda: self.edit_lines_callback())
         return action
 
-    def edit_sections_callback(self):
-        index = self.tree_view.selectedIndexes()[0]
-        item = index.model().itemFromIndex(index)
-        dialog = EditSectionsDialog(self.tree_view, item)
+    def edit_lines_callback(self):
+        dialog = EditLinesDialog(self.tree_view, self.get_selected_item())
         dialog.show()
 
-    def remove_empty_sections(self):
-        action = QAction('remove empty sections', self.context_menu)
-        action.triggered.connect(lambda: self.remove_empty_sections_callback())
+    def remove_empty_lines(self):
+        action = QAction('remove empty lines', self.context_menu)
+        action.triggered.connect(lambda: self.remove_empty_lines_callback())
         return action
 
-    def remove_empty_sections_callback(self):
-        index = self.tree_view.selectedIndexes()[0]
-        item = index.model().itemFromIndex(index)
-        survey = SqlManager().factor(Survey)
-        c = survey.remove_empty_sections(item.survey_id)
-        self.tree_view.model().reload_sections(item)
+    def remove_empty_lines_callback(self):
+        item = self.get_selected_item()
+        c = item.child_model().flush_empty(item.survey_id())
+        item.update_children()
         self.tree_view.setCurrentIndex(item.index())
-        self.tree_view.main_window.statusBar().showMessage(f'Removed {c} empty sections from survey', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+        self.tree_view.main_window.statusBar().showMessage(f'Removed {c} empty lines from survey', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
-    def edit_section(self):
-        action = QAction('edit section', self.context_menu)
-        action.triggered.connect(lambda: self.edit_section_callback())
+    def edit_line(self):
+        action = QAction('edit line', self.context_menu)
+        action.triggered.connect(lambda: self.edit_line_callback())
         return action
 
-    def edit_section_callback(self):
+    def edit_line_callback(self):
         index = self.tree_view.selectedIndexes()[0]
-        form = EditSectionDialog(self.tree_view, index.model().itemFromIndex(index))
+        form = EditLineDialog(self.tree_view, index.model().itemFromIndex(index))
         form.show()
 
-    def remove_section(self):
-        action = QAction('delete section', self.context_menu)
-        action.triggered.connect(lambda: self.remove_section_callback())
+    def remove_line(self):
+        action = QAction('delete line', self.context_menu)
+        action.triggered.connect(lambda: self.remove_line_callback())
         return action
 
-    def remove_section_callback(self):
-        msg = QMessageBox()
+    def remove_line_callback(self):
+        msg = QMessageBox(
+            QMessageBox.Warning,
+            "Delete Line",
+            "<h3>Are you sure?</h3><p>Deleting this Line will delete all containing Points.</p>",
+            QMessageBox.Ok | QMessageBox.Cancel
+        )
         self.remove_alert = msg
-        msg.setIcon(QMessageBox.Warning)
-
-        msg.setText("Are you sure?")
-        msg.setInformativeText("Deleting this Section will delete all containing station too.")
-        msg.setWindowTitle("Delete Section")
-        #msg.setDetailedText("The details are as follows:")
-        msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         if msg.exec_() == QMessageBox.Ok:
-            index = self.tree_view.selectedIndexes()[0]
-            item = index.model().itemFromIndex(index)
-            num_rows = item.model().delete_section(item)
-            self.tree_view.parent().parent().statusBar().showMessage(f'Removed section, deleted {num_rows} rows from database.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+            item = self.get_selected_item()
+            num_rows = item.model().delete(item.line_id())
+            item.remove()
+            self.tree_view.parent().parent().statusBar().showMessage(f'Removed line, deleted {num_rows} rows from database.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
         self.remove_alert.close()
 
@@ -405,19 +424,17 @@ class TreeActions:
         return action
 
     def remove_station_callback(self):
-        msg = QMessageBox()
+        msg = QMessageBox(
+            QMessageBox.Warning,
+            "Delete Station",
+            "<h3>Are you sure?</h3><p>Deleting this Point will require you to verify connected stations</p>",
+            QMessageBox.Ok | QMessageBox.Cancel
+        )
         self.remove_alert = msg
-        msg.setIcon(QMessageBox.Warning)
-
-        msg.setText("Are you sure?")
-        msg.setInformativeText("Deleting this Station requires you too verify surrounding stations.")
-        msg.setWindowTitle("Delete Station")
-        #msg.setDetailedText("The details are as follows:")
-        msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         if msg.exec_() == QMessageBox.Ok:
-            index = self.tree_view.selectedIndexes()[0]
-            item = index.model().itemFromIndex(index)
-            num_rows = item.model().delete_station(item)
+            item = self.get_selected_item()
+            num_rows = item.model().delete(item.station_id())
+            item.remove()
             self.tree_view.parent().parent().statusBar().showMessage(f'Removed station, deleted {num_rows} rows from database.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
 
         self.remove_alert.close()

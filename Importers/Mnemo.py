@@ -1,6 +1,5 @@
 import logging
 import os
-import traceback
 import time
 from datetime import datetime
 
@@ -9,7 +8,7 @@ from serial.tools import list_ports
 
 from Config.Constants import MNEMO_DEVICE_NAME, MNEMO_DEVICE_DESCRIPTION, MNEMO_CYCLE_COUNT, SURVEY_DIRECTION_IN, \
     SURVEY_DIRECTION_OUT
-from Models.TableModels import Survey, Section, Station, SqlManager
+from Models.TableModels import ImportSurvey, ImportLine, ImportStation, SqlManager
 from Utils.Settings import Preferences
 from Workers.Mixins import WorkerMixin
 
@@ -216,25 +215,25 @@ class MnemoImporter(WorkerMixin):
 
 class MnemoDmpReader:
 
-    LINE_LENGTH_SECTION = 10
+    LINE_LENGTH_LINE = 10
     LINE_LENGTH_STATION = 16
 
-    END_OF_SECTION_LIST = (3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,)
+    END_OF_LINE_LIST = (3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,)
 
     DIRECTION_IN = 0
     DIRECTION_OUT = 1
     DIRECTIONS = (SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT, "UNKNOWN",)
 
     STATUS_INPROGRESS = 2
-    STATUS_ENDSECTION = 3
+    STATUS_END_LINE = 3
 
     def __init__(self, byte_list: list, sql_manager: SqlManager):
         self._bytes = byte_list
         self.sql_manager = sql_manager
 
-        self.survey = self.sql_manager.factor(Survey)
-        self.section = self.sql_manager.factor(Section)
-        self.station = self.sql_manager.factor(Station)
+        self.survey = self.sql_manager.factor(ImportSurvey)
+        self.line = self.sql_manager.factor(ImportLine)
+        self.station = self.sql_manager.factor(ImportStation)
 
         self._index = -1
 
@@ -242,37 +241,37 @@ class MnemoDmpReader:
 
     def read(self) -> list:
         survey_id = -1
-        section_id = -1
+        line_id = -1
         station_id = -1
         """
         :return: survey_id
         """
-        survey_id = self.survey.insert_survey(
+        survey_id = self.survey.insert(
                 device_name=Preferences.get("mnemo_device_name", MNEMO_DEVICE_NAME, str),
                 device_properties={
                     "bytes_in_dumpfile": len(self._bytes)
                 }
             )
         self.logger.info(f"Created new survey, survey_id={survey_id}")
-        section_reference_id = 0
+        line_reference_id = 0
         while True:
-            if self.end_of_bytes(self.LINE_LENGTH_SECTION):
-                # empty section / incomplete section
+            if self.end_of_bytes(self.LINE_LENGTH_LINE):
+                # empty line / incomplete line
                 self.logger.info(
-                    f"ln 257: End import at station_id={station_id} section_id={section_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
+                    f"ln 257: End import at station_id={station_id} line_id={line_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
                 return survey_id
 
-            # Loop through every section on the device
+            # Loop through every line on the device
             #  2;21;3;7;13;4;66;65;83;0
-            section_reference_id += 1
-            section_props = self.parse_section_line()
-            section_id = self.section.insert_section(
+            line_reference_id += 1
+            line_props = self.parse_line_part()
+            line_id = self.line.insert(
                     survey_id=survey_id,
-                    section_reference_id=section_reference_id,
-                    direction=section_props['direction'],
-                    device_properties=section_props
+                    line_reference_id=line_reference_id,
+                    direction=line_props['direction'],
+                    device_properties=line_props
                 )
-            self.logger.info(f"Created new section, section_id={section_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
+            self.logger.info(f"Created new line, line_id={line_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
             station_reference_id = 0
             azimuth_in = 0
             azimuth_avg = 0
@@ -280,20 +279,20 @@ class MnemoDmpReader:
             while True:
                 if self.end_of_bytes(self.LINE_LENGTH_STATION):
                     # Here we have LESS that a full station-line.
-                    #   1.) The section is the last entry of the dump, no end-section line exists
+                    #   1.) The line is the last entry of the dump, no end-line line exists
                     #   2.) The next line is incomplete and is smaller then 16 bytes.
                     if len(self._bytes) - self._jump(self.LINE_LENGTH_STATION+1, False) > 0:
                         logging.getLogger(__name__).error(f'Found incomplete station with {len(self._bytes) - self._jump(0, False)} bytes, starting at byte: {self._jump(0, False)}, total bytes {len(self._bytes)}')
                     self.logger.info(
-                        f"ln 281: End import at station_id={station_id} section_id={section_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
+                        f"ln 281: End import at station_id={station_id} line_id={line_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
                     return survey_id
 
                 # Loop through every station for this stations
                 station_reference_id += 1
-                if self.end_of_section():
+                if self.end_of_line():
                     if station_reference_id == 1:
-                        self.logger.info(f"Empty section, section_id={section_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
-                        # this is an empty section, don't insert this station
+                        self.logger.info(f"Empty line, line_id={line_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
+                        # this is an empty line, don't insert this station
                         break
 
                     props = {
@@ -303,10 +302,10 @@ class MnemoDmpReader:
                         "comment": "Last station is generated"
 
                     }
-                    station_id = self.station.insert_station(
+                    station_id = self.station.insert(
                         survey_id=survey_id,
-                        section_id=section_id,
-                        section_reference_id=section_reference_id,
+                        line_id=line_id,
+                        line_reference_id=line_reference_id,
                         station_reference_id=station_reference_id,
                         length_in=length_in,
                         length_out=0,
@@ -322,11 +321,11 @@ class MnemoDmpReader:
                     )
                     break
 
-                station_props = self.parse_station_line()
-                station_id = self.station.insert_station(
+                station_props = self.parse_station_part()
+                station_id = self.station.insert(
                     survey_id=survey_id,
-                    section_id=section_id,
-                    section_reference_id=section_reference_id,
+                    line_id=line_id,
+                    line_reference_id=line_reference_id,
                     station_reference_id=station_reference_id,
                     length_in=length_in,
                     length_out=station_props['length'],
@@ -348,17 +347,17 @@ class MnemoDmpReader:
                 last_depth = station_props['depth_in']
 
         self.logger.info(
-            f"ln 346: End import at station_id={station_id} section_id={section_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
+            f"ln 346: End import at station_id={station_id} line_id={line_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
         return survey_id
 
-    def parse_section_line(self):
+    def parse_line_part(self):
         #  2;21;3;7;13;4;66;65;83;0
         properties = {
             "direction": self.DIRECTIONS[2],
             "skipped_bytes": 0,
             "status": False,
         }
-        # @ariane Skip unknown data until version number in case of previously damaged sections?
+        # @ariane Skip unknown data until version number in case of previously damaged lines?
         while self.read_int8() != 2:
             properties['skipped_bytes'] += 1
             if self.end_of_bytes():
@@ -368,19 +367,19 @@ class MnemoDmpReader:
             continue
 
 
-        if self.end_of_bytes(self.LINE_LENGTH_SECTION):
+        if self.end_of_bytes(self.LINE_LENGTH_LINE):
             # empty survey
             return False, properties
 
-        if self.byte_at_has_value(self.LINE_LENGTH_SECTION - 1, [self.DIRECTION_IN, self.DIRECTION_OUT]) is False \
-                or self.byte_at_has_value(self.LINE_LENGTH_SECTION, [self.STATUS_INPROGRESS, self.STATUS_ENDSECTION]) is False:
+        if self.byte_at_has_value(self.LINE_LENGTH_LINE - 1, [self.DIRECTION_IN, self.DIRECTION_OUT]) is False \
+                or self.byte_at_has_value(self.LINE_LENGTH_LINE, [self.STATUS_INPROGRESS, self.STATUS_END_LINE]) is False:
             # Station line does not start at the expected location.
-            properties['error'] = "Section does not meet expected length"
+            properties['error'] = "Line does not meet expected byte-length"
             properties['error_data'] = {
                 "status_byte_index": self._jump(-1, False),
                 "status_byte_value": self.read_int8(-1, False),
-                "next_direction_byte_index": self._jump(self.LINE_LENGTH_SECTION - 1, False),
-                "next_direction_byte_value": self.read_int8(self.LINE_LENGTH_SECTION - 1, False),
+                "next_direction_byte_index": self._jump(self.LINE_LENGTH_LINE - 1, False),
+                "next_direction_byte_value": self.read_int8(self.LINE_LENGTH_LINE - 1, False),
             }
             return False, properties
 
@@ -398,7 +397,7 @@ class MnemoDmpReader:
         properties["status"] = True
         return properties
 
-    def parse_station_line(self):
+    def parse_station_part(self):
         # 2;2;28;2;78;5;27;6;-4;7;37;-1;-17;-1;-60;0;  ## station is 16 long
         props = {
             'status': False,
@@ -424,11 +423,11 @@ class MnemoDmpReader:
         props['byte_end'] = self._jump(0, False)
         return props
 
-    def end_of_section(self, add_to_index: int = 0):
+    def end_of_line(self, add_to_index: int = 0):
         # +1 because _jump() first adds to the index, then returns it.
         #    so self._index is always 1 step behind...
         for i in range(1, self.LINE_LENGTH_STATION+1):
-            if self.read_int8(add_to_index + i, False) != self.END_OF_SECTION_LIST[i - 1]:
+            if self.read_int8(add_to_index + i, False) != self.END_OF_LINE_LIST[i - 1]:
                 return False
         return True
 
