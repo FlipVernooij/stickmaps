@@ -5,9 +5,10 @@ from datetime import datetime
 from PySide6.QtCore import QModelIndex, Qt, QSettings, QDateTime
 from PySide6.QtSql import QSqlTableModel, QSqlQuery, QSqlRelationalTableModel, QSqlRelation, QSqlDatabase
 
-from Config.Constants import SQL_TABLE_IMPORT_STATIONS, SQL_TABLE_IMPORT_LINES, SQL_TABLE_IMPORT_SURVEYS, SQL_TABLE_CONTACTS, \
+from Config.Constants import SQL_TABLE_IMPORT_STATIONS, SQL_TABLE_IMPORT_LINES, SQL_TABLE_IMPORT_SURVEYS, \
+    SQL_TABLE_CONTACTS, \
     SQL_TABLE_EXPLORERS, SQL_TABLE_SURVEYORS, SQL_DB_LOCATION, SQL_CONNECTION_NAME, DEBUG, SQL_TABLE_MAP_LINES, \
-    SQL_TABLE_MAP_STATIONS
+    SQL_TABLE_MAP_STATIONS, SQL_TABLE_PROJECT_SETTINGS
 from Utils.Settings import Preferences
 
 
@@ -19,7 +20,7 @@ class QueryMixin:
         obj = QSqlQuery(self.db)
         status = obj.prepare(sql)
         if status is False:
-            self._log.error(f'db_exec prepare failed: {obj.lastError()}')
+            self._log.error(f'db_exec prepare failed: {obj.lastError()} for sql: {sql}')
 
         for value in params:
             obj.addBindValue(value)
@@ -27,7 +28,7 @@ class QueryMixin:
         obj.exec_()
         err = obj.lastError().text()
         if len(err) > 0:
-            self._log.error(f'db_exec exec error: {err}')
+            self._log.error(f'db_exec exec error: {err} for sql: {sql}')
         return obj
 
     def db_insert(self, table_name: str, values: dict) -> int:
@@ -43,7 +44,7 @@ class QueryMixin:
             obj.addBindValue(value)
 
         if obj.exec_() is False:
-            raise SyntaxError('Sql insert query failed!')
+            raise SyntaxError(f'Sql insert query failed! {query}')
         insert_id = obj.lastInsertId()
         obj.clear()
         return insert_id
@@ -99,11 +100,14 @@ class QueryMixin:
         obj = self.db_exec(query, params)
         return obj.numRowsAffected()
 
-    def db_get(self, table_name, where_str, params) -> dict:
+    def db_get(self, table_name, where_str=None, params=[]) -> dict:
         if type(params) is not list:
             params = [params]
 
-        query = f"SELECT * FROM {table_name} WHERE {where_str}"
+        query = f"SELECT * FROM {table_name}"
+        if where_str is not None:
+            query = f"{query} WHERE {where_str}"
+
         obj = QSqlQuery(self.db)
         obj.prepare(query)
 
@@ -111,10 +115,8 @@ class QueryMixin:
             obj.addBindValue(param)
 
         obj.exec_()
-        # Doesn't work in sqlite
-        # if obj.size() != 1:
-        #     raise ValueError('Sqlite::get() can only return one row')
-
+        if obj.numRowsAffected() == 0:
+            return None
         obj.first()
         row = {}
         for index in range(0, obj.record().count()):
@@ -151,6 +153,7 @@ class SqlManager:
         return object_name(self.db)
 
     def create_tables(self):
+        self.factor(ProjectSettings).create_database_tables()
         self.factor(ImportSurvey).create_database_tables()
         self.factor(ImportLine).create_database_tables()
         self.factor(ImportStation).create_database_tables()
@@ -161,6 +164,7 @@ class SqlManager:
         self.factor(Explorer).create_database_tables()
 
     def drop_tables(self):
+        self.factor(ProjectSettings).drop_database_tables()
         self.factor(ImportSurvey).drop_database_tables()
         self.factor(ImportLine).drop_database_tables()
         self.factor(ImportStation).drop_database_tables()
@@ -172,6 +176,7 @@ class SqlManager:
 
     def dump_tables(self):
         return {
+            SQL_TABLE_PROJECT_SETTINGS: self.factor(ProjectSettings).dump_table(),
             SQL_TABLE_IMPORT_SURVEYS: self.factor(ImportSurvey).dump_table(),
             SQL_TABLE_IMPORT_LINES: self.factor(ImportLine).dump_table(),
             SQL_TABLE_IMPORT_STATIONS: self.factor(ImportStation).dump_table(),
@@ -184,6 +189,7 @@ class SqlManager:
 
     def load_table_data(self, data: dict) -> int:
         c = 0
+        c = c + self.factor(ProjectSettings).load_table(data[SQL_TABLE_PROJECT_SETTINGS])
         c = c + self.factor(ImportSurvey).load_table(data[SQL_TABLE_IMPORT_SURVEYS])
         c = c + self.factor(ImportLine).load_table(data[SQL_TABLE_IMPORT_LINES])
         c = c + self.factor(ImportStation).load_table(data[SQL_TABLE_IMPORT_STATIONS])
@@ -212,6 +218,55 @@ class SqlManager:
         if not self.db.open():
             raise ConnectionError(f"Database Error: {self.db.lastError()}")
 
+    def flush_db(self):
+        self.drop_tables()
+        self.create_tables()
+
+class ProjectSettings(QueryMixin, QSqlTableModel):
+
+    def create_database_tables(self):
+        query = f"""
+               CREATE TABLE IF NOT EXISTS {SQL_TABLE_PROJECT_SETTINGS} (
+                   project_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   project_name TEXT,
+                   latitude FLOAT,
+                   longitude FLOAT,
+                   date_created FLOAT,
+                   last_update FLOAT
+               )
+           """
+        self.db_exec(query)
+
+    def drop_database_tables(self):
+        query = f"""
+                       DROP TABLE IF EXISTS {SQL_TABLE_PROJECT_SETTINGS}
+                   """
+        self.db_exec(query)
+
+    def dump_table(self):
+        return self.db_fetch(f"SELECT * FROM {SQL_TABLE_PROJECT_SETTINGS} ORDER BY project_id ASC")
+
+    def load_table(self, table_data: list):
+        if len(table_data) == 0:
+            return 0
+        return self.db_insert_bulk(SQL_TABLE_PROJECT_SETTINGS, table_data)
+
+    def insert(self, project_name, latitude, longitude):
+        props = {
+            'project_name': project_name,
+            'latitude': latitude,
+            'longitude': longitude,
+            'date_created': datetime.now().timestamp(),
+            'last_update': datetime.now().timestamp()
+        }
+
+        self.db_insert(SQL_TABLE_PROJECT_SETTINGS, props)
+
+    def get(self):
+        return self.db_get(SQL_TABLE_PROJECT_SETTINGS)
+
+    def update(self):
+        self.db_update(SQL_TABLE_PROJECT_SETTINGS, {'last_update': datetime.timestamp()})
 
 class ImportSurvey(QueryMixin, QSqlTableModel):
 
@@ -440,7 +495,10 @@ class ImportStation(QueryMixin, QSqlTableModel):
                 azimuth_out_avg REAL,
                 length_out REAL,
                 station_comment TEXT,
-                device_properties TEXT
+                device_properties TEXT,
+                longitude REAL DEFAULT NULL,
+                latitude REAL DEFAULT NULL,
+                marker INTEGER DEFAULT 0
             )
         """
         # reference_id is the "id" as provider by the Mnemo.
@@ -599,6 +657,17 @@ class MapLine(QueryMixin, QSqlTableModel):
 
 class MapStation(QueryMixin, QSqlTableModel):
     def create_database_tables(self):
+        """
+            @todo: fields to add + description
+
+            year                  : the year of when the survey was done, used to correctly calculate the magnetic variation of the earth.
+            longitude             : We use the lat/long coordinate system as a grid unit, this makes using googlemaps and bing easier
+            latitude              : Same story
+            merge_with_station_id : the station that it should connect to
+            merge_with_line_id    : the line_id that it connects with, we can probably use this for threading later on?
+
+        :return:
+        """
         query = f"""
             CREATE TABLE IF NOT EXISTS {SQL_TABLE_MAP_STATIONS} (
                 station_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -613,9 +682,7 @@ class MapStation(QueryMixin, QSqlTableModel):
                 azimuth_out_avg REAL,
                 length_out REAL,
                 station_comment TEXT,
-                device_properties TEXT,
-                connects_with_station_id INTEGER DEFAULT NULL,
-                connects_with_line_id INTEGER DEFAULT NULL
+                device_properties TEXT
             )
         """
         self.db_exec(query)

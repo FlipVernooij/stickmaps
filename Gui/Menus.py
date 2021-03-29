@@ -1,5 +1,5 @@
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMenu
+from PySide6.QtWidgets import QMenu, QToolBar
 
 from Gui.Actions import GlobalActions, TreeActions
 
@@ -13,6 +13,7 @@ class MainMenu:
         self.set_file_menu()
         self.set_edit_menu()
         self.set_import_menu()
+        self.set_help_menu()
 
     def set_file_menu(self):
         actions = GlobalActions(self.parent_window)
@@ -32,7 +33,12 @@ class MainMenu:
         actions = GlobalActions(self.parent_window)
         mb = self.parent_window.menuBar()
         fm = mb.addMenu('Edit')
-        fm.addAction(actions.edit_survey())
+
+    def set_help_menu(self):
+        actions = GlobalActions(self.parent_window)
+        mb = self.parent_window.menuBar()
+        fm = mb.addMenu('Help')
+        fm.addAction(actions.about_qt())
 
     def set_import_menu(self):
         actions = GlobalActions(self.parent_window)
@@ -47,6 +53,11 @@ class MainMenu:
         action = QAction()
         action.setSeparator(True)
         return action
+
+class MainToolbar(QToolBar):
+
+    def __init__(self, parent):
+        super().__init__(parent)
 
 
 class ContextMenuImports(QMenu):

@@ -1,27 +1,48 @@
 import logging
+import os
 
 from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal
-from PySide6.QtGui import QIcon, Qt, QCloseEvent, QPalette, QDrag
+from PySide6.QtGui import QIcon, Qt, QCloseEvent, QPalette, QDrag, QScreen, QPixmap, QColor
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
-    QAbstractItemView, QMenu, QLabel, QVBoxLayout, QScrollArea, QSizePolicy, QTextBrowser, QPushButton, QComboBox, \
-    QButtonGroup, QHBoxLayout, QGraphicsView
+    QAbstractItemView, QVBoxLayout, QTextBrowser, QPushButton, QComboBox, QHBoxLayout, QGraphicsView, QToolBar, \
+    QSplashScreen
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
-    MAIN_WINDOW_ICON, DEBUG
-from Gui.Actions import TreeActions, GlobalActions
+    MAIN_WINDOW_ICON, DEBUG, APPLICATION_SPLASH_IMAGE
+from Gui.Actions import GlobalActions
+from Gui.Dialogs import NewProjectDialog, StartupWidget
 from Gui.Menus import MainMenu, ContextMenuSurvey, ContextMenuLine, ContextMenuStation, ContextMenuImports
-from Models.ItemModels import ImportItem, ImportLineItem, ProxyModel
+from Models.ItemModels import ProxyModel
 from Models.TableModels import SqlManager
 from Utils.Logging import LogStream
-from Utils.Rendering import DragImage, ImageTest, MapScene
+from Utils.Rendering import DragImage, MapScene
 from Utils.Settings import Preferences
+from Utils.Storage import SaveFile
+
+
+class Splash(QSplashScreen):
+
+    def __init__(self):
+        super().__init__()
+        self.setPixmap(QPixmap(APPLICATION_SPLASH_IMAGE))
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+
+    def showMessage(self, message: str, alignment: int = Qt.AlignBottom, color: QColor = Qt.white) -> None:
+        super().showMessage(message, alignment, color)
 
 
 class MainApplicationWindow(QMainWindow):
 
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
-        self.debug_console = None
+        self.setWindowTitle(MAIN_WINDOW_TITLE)
+        self.setWindowIcon(QIcon(MAIN_WINDOW_ICON))
+        self.statusBar().showMessage('Loading ...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+        self.read_settings()
+
+        self.sql_manager = self.init_database()
+
+
         self.debug_console = QDockWidget('Debug console', self)
         self.debug_console.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
         self.debug_console.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea | Qt.RightDockWidgetArea)
@@ -29,18 +50,34 @@ class MainApplicationWindow(QMainWindow):
         self.debug_console.setWidget(inner)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.debug_console)
         self.toggle_debug_console(Preferences.get('debug', DEBUG, bool))
-        self.tree_view = None
+
+        dock = QDockWidget("Survey data", self)
+        dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
+        dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.tree_view = SurveyOverview(self)
+        dock.setWidget(self.tree_view)
+        self.addDockWidget(Qt.LeftDockWidgetArea, dock)
+
         self.map_view = MapView(self)
-        self.setWindowTitle(MAIN_WINDOW_TITLE)
-        self.setWindowIcon(QIcon(MAIN_WINDOW_ICON))
-        self.sql_manager = self.init_database()
+        self.setCentralWidget(self.map_view)
+
         self.setup_interface()
-        self.statusBar().showMessage('Loading ...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
-        self.read_settings()
+
         self.show()
+        self.setFocus()
+        # settings = QSettings()
+        # file_name = settings.value('SaveFile/current_file_name', None)
+        # if file_name is not None and os.path.exists(file_name):
+        #     project = SaveFile(self, file_name)
+        #     project.open_project()
+        #     return
+        self.sql_manager.flush_db()
+        new_file = StartupWidget(self)
+        new_file.show()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if Preferences.get('debug', DEBUG, bool) is True:
+            self.write_settings()
             event.accept()
             return
 
@@ -57,14 +94,15 @@ class MainApplicationWindow(QMainWindow):
     def setup_interface(self):
         main_menu = MainMenu(self)
         main_menu.generate()
-        self.setCentralWidget(self.map_view)
-        dock = QDockWidget("Survey data", self)
-        dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
-        dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-        self.tree_view = SurveyOverview(self)
-        dock.setWidget(self.tree_view)
-        self.tree_view.show()
-        self.addDockWidget(Qt.LeftDockWidgetArea, dock)
+
+
+
+
+        tools = QDockWidget("Tools", self)
+        tools.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
+        tools.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.TopDockWidgetArea | Qt.BottomDockWidgetArea)
+        tools.setWidget(QToolBar("Test this toolbar", self))
+        self.addDockWidget(Qt.RightDockWidgetArea, tools)
 
     def init_database(self):
         obj = SqlManager('default_db')
@@ -199,6 +237,8 @@ class MapView(QGraphicsView):
         self.map_scene = MapScene(self)
         self.setScene(self.map_scene)
 
+        self.map_scene.load_map_from_database()
+
         self.setAutoFillBackground(True)
         self.setBackgroundRole(QPalette.Light)
         self.setAcceptDrops(True)
@@ -226,40 +266,32 @@ class MapView(QGraphicsView):
     #     if event.type() not in [event.Type.Enter]:
     #         print('scrolling')
     #     event.accept()
+    #
+    # def wheelEvent(self, event) -> None:
+    #     event.accept()
+    #     ##event.
+    #     #QWheelEvent
+    #     print('wheel event')
 
-    def wheelEvent(self, event) -> None:
-        event.accept()
-        ##event.
-        #QWheelEvent
-        print('wheel event')
-
-    # Drag & drop event
-    def dragEnterEvent(self, event) -> None:
-        event.accept()
-
-    def dragLeaveEvent(self, event) -> None:
-       event.accept()
-
-    def dragMoveEvent(self, event) -> None:
-        event.accept()
-
-    def dropEvent(self, event):
-        super().dropEvent(event)
-        return
-        mime = event.mimeData()
-        survey_id = mime.property('survey_id')
-        line_id = mime.property('line_id')
-        line_name = mime.property('line_name')
-
-        pixmap = ImageTest(line_id=line_id, line_name=line_name)
-        image = QLabel('img')
-        image.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
-        image.setScaledContents(True)
-        image.setPixmap(pixmap.get_pixmap())
-        self.setWidget(image)
-
-        event.accept()
-        return
+    # # Drag & drop event
+    # def dragEnterEvent(self, event) -> None:
+    #     event.accept()
+    #
+    # def dragLeaveEvent(self, event) -> None:
+    #    event.accept()
+    #
+    # def dragMoveEvent(self, event) -> None:
+    #     event.accept()
+    #
+    # def dropEvent(self, event):
+    #     super().dropEvent(event)
+    #     mime = event.mimeData()
+    #     survey = self.import_survey.get(int(mime.property('survey_id')))
+    #     line = self.import_line.get(int(mime.property('line_id'))
+    #
+    #
+    #     event.accept()
+    #     return
 
 
 class DebugConsole(QWidget):
@@ -320,4 +352,5 @@ class DebugConsole(QWidget):
 
     def set_loglevel(self, loglevel: str):
         logging.getLogger().setLevel(getattr(logging, loglevel))
+        Preferences.set('debug_loglevel', getattr(logging, loglevel))
         self.clear_console(None)

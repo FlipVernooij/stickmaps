@@ -1,20 +1,29 @@
+import os
+import pathlib
+
 import PySide6
 from PySide6 import QtCore
 from PySide6.QtCore import QDateTime, QSysInfo, QSettings
-from PySide6.QtGui import Qt, QFont
+from PySide6.QtGui import Qt, QFont, QPixmap
 from PySide6.QtSql import QSqlTableModel
 from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, QMessageBox, QApplication, QFormLayout, \
     QLineEdit, QDateTimeEdit, QTextEdit, QDialogButtonBox, QVBoxLayout, QDoubleSpinBox, QListWidget, \
-    QCheckBox, QComboBox, QSpinBox, QLabel, QPushButton
+    QCheckBox, QComboBox, QSpinBox, QLabel, QPushButton, QFileDialog, QWizard
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, MNEMO_DEVICE_DESCRIPTION, DEBUG, \
     MNEMO_DEVICE_NAME, MNEMO_BAUDRATE, MNEMO_TIMEOUT, MNEMO_CYCLE_COUNT, SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT, \
-    SQL_DB_LOCATION
+    SQL_DB_LOCATION, DEFAULT_LATITUDE, DEFAULT_LONGITUDE, GOOGLE_MAPS_SCALING, APPLICATION_CACHE_DIR, \
+    APPLICATION_CACHE_MAX_SIZE, APPLICATION_TMP_DIR, APPLICATION_SPLASH_IMAGE, APPLICATION_DEFAULT_PROJECT_NAME, \
+    APPLICATION_DEFAULT_FILE_NAME, APPLICATION_NEWPROJECT_IMAGE, APPLICATION_VERSION, MAIN_WINDOW_TITLE, \
+    APPLICATION_FILE_EXTENSION
 from Gui.Delegates.FormElements import DropDown
-from Models.TableModels import ImportLine, ImportSurvey, ImportStation
+from Gui.Mixins import FormMixin
+from Models.TableModels import ImportLine, ImportSurvey, ImportStation, SqlManager, ProjectSettings
 from Utils.Settings import Preferences
 
 import traceback
+
+from Utils.Storage import SaveFile
 
 
 class ErrorDialog:
@@ -115,60 +124,60 @@ class ErrorDialog:
             print(f"ERROR: {message}")
 
 
-class PreferencesDialog(QDialog):
+class PreferencesDialog(QDialog, FormMixin):
     FORMS = {
         "General": {
-            "fields": [
-                {
-                    "label": "CPU architecture",
-                    "form_field": "label",
-                    "value": f'{QSysInfo.currentCpuArchitecture()}/{QSysInfo.buildCpuArchitecture()}'
+            "fields": {
+                "cache_dir": {
+                    "label": "Cache directory",
+                    "info": f"{APPLICATION_NAME} uses this directory to store cache files.",
+                    "form_field": "text_line",
+                    "settings_key": "application_cache_dir",
+                    "default_value": APPLICATION_CACHE_DIR,
                 },
-                {
-                    "label": "Compiled architecture",
-                    "form_field": "label",
-                    "value": f'{QSysInfo.buildAbi()}'
+                "cache_size": {
+                    "label": "Cache max size in MB",
+                    "info": f"The maximum size of your cache directory.",
+                    "form_field": "spinner",
+                    "min": 50,
+                    "max": 1000,
+                    "settings_key": "application_cache_max_size",
+                    "default_value": APPLICATION_CACHE_MAX_SIZE,
                 },
-                {
-                    "label": "Operating system",
-                    "form_field": "label",
-                    "value": f'{QSysInfo.prettyProductName()}'
-                },
-                {
-                    "label": "Kernel version",
-                    "form_field": "label",
-                    "value": f'{QSysInfo.kernelType()} - {QSysInfo.kernelVersion()}'
-                },
-                {
-                    "label": "QT version",
-                    "form_field": "label",
-                    "value": f'{QtCore.__version__}'
-                },
-                {
-                    "label": "PySide version",
-                    "form_field": "label",
-                    "value": f'{PySide6.__version__}'
-                },
-                {
+                "dev_mode": {
                     "label": "Enable developer-mode",
-                    "info": "Enables some advanced configuration-options and debugging tools, USE WITH CARE!",
+                    "info": f"Do not use this unless you know what you are doing, you can break things.",
                     "form_field": "check_box",
                     "settings_key": "debug",
                     "default_value": DEBUG
-
                 }
-            ]
+            }
+        },
+        "Geolocation & Satellite": {
+            "fields": {
+                "map_scaling": {
+                    "label": "Scaling",
+                    "info": "High definition monitors should use 2, low res monitors can use 1 in order to minimize bandwith usage.",
+                    "form_field": "combo_box",
+                    "options": [
+                        "1",
+                        "2"
+                    ],
+                    "settings_key": "google_maps_scaling",
+                    "default_value": GOOGLE_MAPS_SCALING
+                }
+            }
         },
         "Mnemo": {
-            "fields": [
-                {
+            "fields": {
+                "device_name": {
                     "label": "Device name",
                     "info": "This is the label used as the \"device name\" within your survey.",
                     "form_field": "text_line",
                     "settings_key": "mnemo_device_name",
                     "default_value": MNEMO_DEVICE_NAME
                 },
-                {
+                "read_cycles": {
                   "label": "Read cycles",
                   "info": "The amount of tries we will try to fetch more data from the Mnemo serial connection.",
                     "form_field": "spinner",
@@ -177,7 +186,7 @@ class PreferencesDialog(QDialog):
                     "settings_key": "mnemo_cycle_count",
                     "default_value": MNEMO_CYCLE_COUNT,
                 },
-                {
+                "device_ident": {
                     "label": "Device ",
                     "info": "The device description to look for when scanning your usb devices for a Mnemo connection.",
                     "form_field": "text_line",
@@ -185,7 +194,7 @@ class PreferencesDialog(QDialog):
                     "default_value": MNEMO_DEVICE_DESCRIPTION,
                     "dev_only": True
                 },
-                {
+                "baudrate":{
                     "label": "Baudrate",
                     "info": "The speed used to read out your Mnemo.",
                     "form_field": "combo_box",
@@ -198,8 +207,7 @@ class PreferencesDialog(QDialog):
                     "settings_key": "mnemo_baudrate",
                     "default_value": MNEMO_BAUDRATE
                 },
-                {
-
+                "timeout": {
                     "label": "Timeout",
                     "info": "Connection timeout",
                     "form_field": "spinner",
@@ -209,30 +217,72 @@ class PreferencesDialog(QDialog):
                     "default_value": MNEMO_TIMEOUT,
                     "dev_only": True
                 },
-            ]
+            }
+        },
+        "Info": {
+            "fields": {
+                "cpu": {
+                    "label": "CPU architecture",
+                    "form_field": "label",
+                    "value": f'{QSysInfo.currentCpuArchitecture()}/{QSysInfo.buildCpuArchitecture()}'
+                },
+                "comp_arch": {
+                    "label": "Compiled architecture",
+                    "form_field": "label",
+                    "value": f'{QSysInfo.buildAbi()}'
+                },
+                "os": {
+                    "label": "Operating system",
+                    "form_field": "label",
+                    "value": f'{QSysInfo.prettyProductName()}'
+                },
+                "kernel":{
+                    "label": "Kernel version",
+                    "form_field": "label",
+                    "value": f'{QSysInfo.kernelType()} - {QSysInfo.kernelVersion()}'
+                },
+                "qt_version":{
+                    "label": "QT version",
+                    "form_field": "label",
+                    "value": f'{QtCore.__version__}'
+                },
+                "pyside_version":{
+                    "label": "PySide version",
+                    "form_field": "label",
+                    "value": f'{PySide6.__version__}'
+                }
+            }
         },
         "Debug": {
             "dev_only": True,
-            "fields": [
-                {
+            "fields": {
+                "db_location": {
                     "label": "Sqlite database location",
                     "info": "Use \":memory:\" to create a fast yet volatile database in RAM.",
                     "form_field": "text_line",
                     "settings_key": "sql_db_location",
                     "default_value": SQL_DB_LOCATION,
                 },
-                {
+                "tmp_dir":
+                    {
+                    "label": "Tmp directory",
+                    "info": f"{APPLICATION_NAME} uses this directory to store temporary files.",
+                    "form_field": "text_line",
+                    "settings_key": "application_tmp_dir",
+                    "default_value": APPLICATION_TMP_DIR,
+                },
+                "settings_raw": {
                     "label": "QSettings raw data",
                     "form_field": "label_ml",
                     "value_from_function": "_settings_as_string"
                 },
-                {
+                "settings_reset": {
                     "label": "Reset settings",
                     "form_field": "button",
                     "button_label": "reset",
                     "action": "_reset_settings"
                 }
-            ]
+            }
 
         }
     }
@@ -258,7 +308,6 @@ class PreferencesDialog(QDialog):
 
         self.generate_form(self.current_form)
 
-
     def __init__(self, parent):
         super().__init__(parent)
         self.main_window = parent
@@ -282,7 +331,7 @@ class PreferencesDialog(QDialog):
         self.form_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.form_layout.setLabelAlignment(Qt.AlignRight)
         self.form_layout.setContentsMargins(10, 0, 20, 0)
-        self.generate_form(self.current_form)
+        self.generate_form(self.FORMS[self.current_form], self.form_layout)
         layout.addLayout(self.form_layout)
 
         o_layout = QVBoxLayout()
@@ -295,13 +344,37 @@ class PreferencesDialog(QDialog):
 
         self.setLayout(o_layout)
 
+    def generate_chapters(self):
+        while self.list_widget.count() > 0:
+            self.list_widget.takeItem(self.list_widget.count() - 1)
+
+        for item in self.FORMS.keys():
+            if 'dev_only' in self.FORMS[item] and self.FORMS[item]['dev_only'] is True:
+                if Preferences.debug() is False:
+                    continue
+
+            self.list_widget.addItem(item)
+
+        self.list_widget.itemClicked.connect(self.chapter_clicked)
+
+    def chapter_clicked(self, event):
+        if self.form_changed is True:
+            response = QMessageBox.question(self, 'Ignore unsaved changes?', 'You have unsaved changes, continue?',
+                                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if response == QMessageBox.No:
+                return
+
+        self.form_changed = False
+        self.current_form = event.text()
+        self.generate_form(self.FORMS[self.current_form], self.form_layout)
+
     def save(self):
-        for field in self.FORMS[self.current_form]['fields']:
+        for field in self.FORMS[self.current_form]['fields'].values():
             if 'settings_key' in field and 'form_element' in field:
                 Preferences.set(field['settings_key'], self.get_field_value(field))
 
         self.generate_chapters()
-        self.main_window.toggle_debug_console(Preferences.get('debug', DEBUG, bool))
+        self.main_window.toggle_debug_console(Preferences.debug())
 
         self.form_changed = False
 
@@ -314,108 +387,228 @@ class PreferencesDialog(QDialog):
 
         super().close()
 
-    def chapter_clicked(self, event):
-        if self.form_changed is True:
-            response = QMessageBox.question(self, 'Ignore unsaved changes?', 'You have unsaved changes, continue?',
-                                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if response == QMessageBox.No:
+
+class NewProjectDialog(QDialog, FormMixin):
+
+    FORM = {
+        "title": "Create new project",
+        "fields": {
+                    "project_name": {
+                        "label": "Project name",
+                        "form_field": "text_line",
+                        "default_value": APPLICATION_DEFAULT_PROJECT_NAME
+                    },
+                    "file_name": {
+                        "label": "File name",
+                        "form_field": "file_path",
+                        "default_value": APPLICATION_DEFAULT_FILE_NAME
+                    },
+                    "use_geo": {
+                        "label": "Use geo-location",
+                        "form_field": "check_box",
+                        "field_changed": "_toggle_geo_location",
+                        "default_value": False
+                    },
+                    "lat_lng": {
+                        "label": "Latitude / Longitude",
+                        "form_field": "group_field",
+                        "fields": {
+                            "latitude": {
+                                "form_field": "spinner",
+                                "is_float": True,
+                                "placeholder": "- Latitude - (00.0000000)",
+                                "disabled": True,
+                                "decimals": 14,
+                                'min': -90,
+                                'max': 90
+                            },
+                            "longitude": {
+                                "form_field": "spinner",
+                                "is_float": True,
+                                "placeholder": "- Longitude - (00.0000000)",
+                                "disabled": True,
+                                "decimals": 14,
+                                'min': -180,
+                                'max': 180,
+                            }
+                        },
+                        "default_value": False
+                    }
+            }
+    }
+    def __init__(self, parent, startup_widget=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.startup_widget = startup_widget
+        self.setWindowTitle(f'Create project')
+        self.setFixedSize(800, 400)
+
+        hlayout = QHBoxLayout()
+        label = QLabel()
+        pixmap = QPixmap(APPLICATION_NEWPROJECT_IMAGE)
+        pixmap.scaledToWidth(200)
+        label.setPixmap(pixmap)
+        hlayout.addWidget(label)
+        form_layout = QFormLayout()
+        form_layout.setContentsMargins(20, 0, 20, 20)
+        hlayout.addLayout(form_layout)
+
+        self.generate_form(self.FORM, form_layout)
+        self.form_layout = form_layout
+
+        self.parent.tree_view.setDisabled(True)
+        self.parent.map_view.setDisabled(True)
+        self.parent.menuBar().setDisabled(True)
+        self.setLayout(hlayout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok)
+        self.form_layout .addRow(buttons)
+
+        buttons.accepted.connect(self.create_project)
+
+    def _toggle_geo_location(self):
+        toggle = self.FORM['fields']['use_geo']['form_element']
+        lat = self.FORM['fields']['lat_lng']['fields']['latitude']['form_element']
+        lng = self.FORM['fields']['lat_lng']['fields']['longitude']['form_element']
+
+        lat.setEnabled(toggle.isChecked())
+        lng.setEnabled(toggle.isChecked())
+
+    def create_project(self):
+        file_name = self.get_field_value(self.FORM['fields']['file_name'])
+        project_name = self.get_field_value(self.FORM['fields']['project_name'])
+        if self.get_field_value(self.FORM['fields']['use_geo']) is True:
+            latitude = self.get_field_value(self.FORM['fields']['lat_lng']['fields']['latitude'])
+            longitude = self.get_field_value(self.FORM['fields']['lat_lng']['fields']['longitude'])
+        else:
+            latitude = None
+            longitude = None
+
+        save = SaveFile(self.parent, file_name)
+        save.create_new_project(project_name, latitude, longitude)
+        self.close()
+
+    def closeEvent(self, event) -> None:
+        project = SqlManager().factor(ProjectSettings).get()
+        if project is None:
+            if self.startup_widget is not None:
+                event.accept()
+                self.startup_widget.show()
+                return
+            QMessageBox.information(self.parent, "You have to create a project", "Please create a project before exiting this wizard")
+            event.ignore()
+            return
+
+        self.parent.tree_view.setDisabled(False)
+        self.parent.map_view.setDisabled(False)
+        self.parent.menuBar().setDisabled(False)
+        event.accept()
+
+
+class OpenProjectDialog(QFileDialog):
+
+    def __init__(self, parent, startup_widget=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.startup_widget = startup_widget
+        self.setWindowTitle(f'Open project')
+        self.setFixedSize(800, 400)
+        self.settings = QSettings()
+
+        try:
+            file_regex = f'(*.{APPLICATION_FILE_EXTENSION})'
+            file_ident = f'{APPLICATION_NAME} {file_regex}'
+            #self.setDisabled(path)
+            self.setWindowTitle('Create file')
+            self.setFilter(self.filter())
+            self.setDefaultSuffix(APPLICATION_FILE_EXTENSION)
+            self.setAcceptMode(QFileDialog.AcceptOpen)
+            self.setNameFilters([file_ident])
+            self.setDirectory(self.settings.value('SaveFile/last_path', str(pathlib.Path.home())))
+            self.setOption(QFileDialog.DontUseNativeDialog)
+            self.setWindowTitle('Open project')
+
+            self.fileSelected.connect(self.open)
+
+
+        except Exception as err_mesg:
+            ErrorDialog.show_error_key(self.parent, str(err_mesg))
+
+    def open(self, file):
+        save = SaveFile(self.parent, file)
+        save.open_project()
+        self.close()
+
+    def closeEvent(self, event) -> None:
+        project = SqlManager().factor(ProjectSettings).get()
+        if project is None:
+            if self.startup_widget is not None:
+                event.accept()
+                self.startup_widget.show()
                 return
 
-        self.form_changed = False
-        self.current_form = event.text()
+            QMessageBox.information(self.parent, "You have to create a project",
+                                    "Please create a project before exiting this wizard")
+            event.ignore()
+            return
+
+        self.parent.tree_view.setDisabled(False)
+        self.parent.map_view.setDisabled(False)
+        self.parent.menuBar().setDisabled(False)
+        event.accept()
 
 
-        self.generate_form(self.current_form)
+class StartupWidget(QDialog):
 
-    def field_changed(self, arg=None):
-        self.form_changed = True
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle(f'Welcome to {APPLICATION_NAME}')
+        self.setFixedSize(800, 400)
 
-    def generate_chapters(self):
-        while self.list_widget.count() > 0:
-            self.list_widget.takeItem(self.list_widget.count()-1)
+        hlayout = QHBoxLayout()
+        label = QLabel()
+        pixmap = QPixmap(APPLICATION_NEWPROJECT_IMAGE)
+        pixmap.scaledToWidth(200)
+        label.setPixmap(pixmap)
+        hlayout.addWidget(label)
+        button_layout = QVBoxLayout()
+       # button_layout.setContentsMargins(20, 0, 20, 20)
+        hlayout.addLayout(button_layout)
 
-        for item in self.FORMS.keys():
-            if 'dev_only' in self.FORMS[item] and self.FORMS[item]['dev_only'] is True:
-                if Preferences.get('debug', DEBUG, bool) is False:
-                    continue
+        new_project = QPushButton("Create new project")
+        open_project = QPushButton("Open existing project")
 
-            self.list_widget.addItem(item)
+        new_project.clicked.connect(self.show_new_project)
+        open_project.clicked.connect(self.show_open_project)
+        button_layout.addWidget(new_project)
+        button_layout.addWidget(open_project)
 
-        self.list_widget.itemClicked.connect(self.chapter_clicked)
+        self.setLayout(hlayout)
 
-    def generate_form(self, key):
-        while self.form_layout.rowCount() > 0:
-            self.form_layout.removeRow(self.form_layout.rowCount() - 1)
+    def closeEvent(self, event) -> None:
+        project = SqlManager().factor(ProjectSettings).get()
+        if project is None:
+            QMessageBox.information(self.parent, "You have to create a project",
+                                    "Please create a project before exiting this wizard")
+            event.ignore()
+            return
 
-        for i, element in enumerate(self.FORMS[key]['fields']):
-            if 'default_value' in element:
-                element['default_value'] = Preferences.get(element['settings_key'], element['default_value'])
-            self.FORMS[key]['fields'][i]['form_element'] = self.get_field(element)
-            label = QLabel(element['label'])
-            label.setMinimumWidth(150)
-            if 'info' in element:
-                label.setToolTip(f"{element['info']}")
+        self.parent.tree_view.setDisabled(False)
+        self.parent.map_view.setDisabled(False)
+        self.parent.menuBar().setDisabled(False)
+        event.accept()
 
-            self.form_layout.addRow(label, self.FORMS[key]['fields'][i]['form_element'])
+    def show_new_project(self):
+        d = NewProjectDialog(self.parent, self)
+        d.show()
+        self.hide()
 
-    def get_field(self, element: dict):
-        f = element['form_field']
-        if f == 'text_line':
-            el = QLineEdit(self)
-            el.setText(str(element['default_value']))
-            el.setClearButtonEnabled(True)
-            el.textChanged.connect(self.field_changed)
-        elif f == 'check_box':
-            el = QCheckBox(self)
-            el.setChecked(bool(int(element['default_value'])))
-            el.stateChanged.connect(self.field_changed)
-        elif f == 'combo_box':
-            el = QComboBox(self)
-            el.addItems(element['options'])
-            el.setCurrentText(str(element['default_value']))
-            el.currentTextChanged.connect(self.field_changed)
-        elif f == 'spinner':
-            el = QSpinBox(self)
-            el.setValue(int(element['default_value']))
-            el.setMinimum(element['min'])
-            el.setMaximum(element['max'])
-            el.valueChanged.connect(self.field_changed)
-        elif f == 'button':
-            el = QPushButton(element['button_label'])
-            el.clicked.connect(getattr(self, element['action']))
-        elif f == 'label':
-            if "value_from_function" in element:
-                element['value'] = getattr(self, element["value_from_function"])(element)
-            el = QLabel(element['value'])
-        elif f == 'label_ml':
-            if "value_from_function" in element:
-                element['value'] = getattr(self, element["value_from_function"])(element)
-            el = QLabel(element['value'])
-            el.setWordWrap(True)
-        else:
-            raise AttributeError(f'Unknown form_field in preferences plain: "{f}"')
 
-        if 'dev_only' in element and element['dev_only'] is True:
-            if Preferences.get('debug', DEBUG, bool) is False:
-                el.setDisabled(True)
-
-        el.setMinimumWidth(200)
-
-        return el
-
-    def get_field_value(self, element: dict):
-        f = element['form_field']
-        e = element['form_element']
-        if f == 'text_line':
-            return e.text()
-        elif f == 'check_box':
-            return int(e.isChecked())
-        elif f == 'combo_box':
-            return e.currentText()
-        elif f == 'spinner':
-            return e.value()
-        else:
-            raise AttributeError(f'Unknown form_field in preferences plain: "{f}"')
+    def show_open_project(self):
+        d = OpenProjectDialog(self.parent, self)
+        d.show()
+        self.hide()
 
 
 class EditSurveysDialog(QDialog):

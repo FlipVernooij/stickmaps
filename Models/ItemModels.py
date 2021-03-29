@@ -397,6 +397,10 @@ class ProxyModel(QStandardItemModel, ItemMixin):
         self.appendRow(self._import_item)
         self.appendRow(self._map_item)
 
+    def reload(self):
+        self.import_item().append_children()
+        self.map_item().append_children()
+
     def import_item(self) -> ImportItem:
         return self._import_item
 
