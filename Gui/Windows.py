@@ -33,6 +33,24 @@ class Splash(QSplashScreen):
 
 class MainApplicationWindow(QMainWindow):
 
+    def disable_ui(self):
+        self.tree_view.setDisabled(True)
+        self.map_view.setDisabled(True)
+        self.menuBar().setDisabled(True)
+        return
+
+    def enable_ui(self):
+        self.tree_view.setDisabled(False)
+        self.map_view.setDisabled(False)
+        self.menuBar().setDisabled(False)
+        return
+
+    def start_project(self, project_name: str):
+        self.statusBar().showMessage(f'Project {project_name} loaded', MAIN_WINDOW_STATUSBAR_TIMEOUT)
+        self.setWindowTitle(f'{project_name} -- {MAIN_WINDOW_TITLE}')
+        self.tree_view.model().reload()
+        self.enable_ui()
+
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
         self.setWindowTitle(MAIN_WINDOW_TITLE)
@@ -65,12 +83,12 @@ class MainApplicationWindow(QMainWindow):
 
         self.show()
         self.setFocus()
-        # settings = QSettings()
-        # file_name = settings.value('SaveFile/current_file_name', None)
-        # if file_name is not None and os.path.exists(file_name):
-        #     project = SaveFile(self, file_name)
-        #     project.open_project()
-        #     return
+        settings = QSettings()
+        file_name = settings.value('SaveFile/current_file_name', None)
+        if file_name is not None and os.path.exists(file_name):
+            project = SaveFile(self, file_name)
+            project.open_project()
+            return
         self.sql_manager.flush_db()
         new_file = StartupWidget(self)
         new_file.show()
@@ -168,6 +186,7 @@ class SurveyOverview(QTreeView):
         if item is None:
             return
 
+        menu = None
         if item.type() == item.ITEM_TYPE_IMPORTS:
             menu = ContextMenuImports(self)
         elif item.type() == item.ITEM_TYPE_SURVEY:
@@ -176,6 +195,9 @@ class SurveyOverview(QTreeView):
             menu = ContextMenuLine(self)
         elif item.type() == item.ITEM_TYPE_STATION:
             menu = ContextMenuStation(self)
+
+        if menu is None:
+            return
 
         menu.popup(self.mapToGlobal(pos))
 

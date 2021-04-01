@@ -8,7 +8,8 @@ from PySide6.QtSql import QSqlTableModel, QSqlQuery, QSqlRelationalTableModel, Q
 from Config.Constants import SQL_TABLE_IMPORT_STATIONS, SQL_TABLE_IMPORT_LINES, SQL_TABLE_IMPORT_SURVEYS, \
     SQL_TABLE_CONTACTS, \
     SQL_TABLE_EXPLORERS, SQL_TABLE_SURVEYORS, SQL_DB_LOCATION, SQL_CONNECTION_NAME, DEBUG, SQL_TABLE_MAP_LINES, \
-    SQL_TABLE_MAP_STATIONS, SQL_TABLE_PROJECT_SETTINGS
+    SQL_TABLE_MAP_STATIONS, SQL_TABLE_PROJECT_SETTINGS, SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT
+from Gui.Delegates.FormElements import CommentEditor, DateTimeEditor, DropDown
 from Utils.Settings import Preferences
 
 
@@ -115,9 +116,8 @@ class QueryMixin:
             obj.addBindValue(param)
 
         obj.exec_()
-        if obj.numRowsAffected() == 0:
+        if obj.first() is False:
             return None
-        obj.first()
         row = {}
         for index in range(0, obj.record().count()):
             row[obj.record().fieldName(index)] = obj.value(index)
@@ -222,6 +222,7 @@ class SqlManager:
         self.drop_tables()
         self.create_tables()
 
+
 class ProjectSettings(QueryMixin, QSqlTableModel):
 
     def create_database_tables(self):
@@ -268,17 +269,18 @@ class ProjectSettings(QueryMixin, QSqlTableModel):
     def update(self):
         self.db_update(SQL_TABLE_PROJECT_SETTINGS, {'last_update': datetime.timestamp()})
 
+
 class ImportSurvey(QueryMixin, QSqlTableModel):
 
     def create_database_tables(self):
         query = f"""
             CREATE TABLE IF NOT EXISTS {SQL_TABLE_IMPORT_SURVEYS} (
                 survey_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                device_name TEXT,
-                device_properties TEXT,
-                survey_datetime INTEGER,
                 survey_name TEXT,
-                survey_comment TEXT
+                survey_datetime INTEGER,
+                device_name TEXT,
+                survey_comment TEXT,
+                device_properties TEXT
             )
         """
         self.db_exec(query)
@@ -337,42 +339,43 @@ class ImportSurvey(QueryMixin, QSqlTableModel):
         self.setTable(SQL_TABLE_IMPORT_SURVEYS)
         self.setEditStrategy(self.OnManualSubmit)
 
-        self.setHeaderData(0, Qt.Horizontal, "Survey ID")
-        self.setHeaderData(1, Qt.Horizontal, "Device name")
-        self.setHeaderData(2, Qt.Horizontal, "Device properties")
-        self.setHeaderData(3, Qt.Horizontal, "Date & time")
-        self.setHeaderData(4, Qt.Horizontal, "Survey name")
-        self.setHeaderData(5, Qt.Horizontal, "Survey comment")
+        self.setHeaderData(0, Qt.Horizontal, "Survey id")
+        self.setHeaderData(1, Qt.Horizontal, "Survey name")
+        self.setHeaderData(2, Qt.Horizontal, "Date & time")
+        self.setHeaderData(3, Qt.Horizontal, "Device name")
+        self.setHeaderData(4, Qt.Horizontal, "Survey comment")
+        self.setHeaderData(5, Qt.Horizontal, "Device properties")
 
-    def flags(self, index):
+    def set_column_widths(self, view):
+        if Preferences.debug() is False:
+            view.setColumnHidden(0, True)
+            view.setColumnHidden(5, True)
+
+        view.setColumnWidth(0, 50)
+        view.setColumnWidth(1, 140)
+        view.setColumnWidth(2, 160)
+        view.setColumnWidth(3, 100)
+        view.setColumnWidth(4, 200)
+
+        editor = CommentEditor(view.parent())
+        view.setItemDelegateForColumn(4, editor)
+        date = DateTimeEditor(view.parent())
+        view.setItemDelegateForColumn(2, date)
+        return view
+
+    def flags(self, index: QModelIndex):
         # this also affects the insert of a record.
-        if index.column() in [0, 2]:
+        if index.column() in [0, 5]:
             return Qt.NoItemFlags  # both the id and device properties are un-editable.
-        return super().flags(index)
 
-    def setData(self, index, value, role):
-
-        if index.column() == 3:
-            if role == Qt.EditRole:
-                value = value.toSecsSinceEpoch()
-
-        return super().setData(index, value, role)
+        return Qt.ItemIsEditable | Qt.ItemIsEnabled
 
     def data(self, index, role):
-        data = super().data(index, role)
         if role == Qt.TextAlignmentRole:
-            if index.column() in (0, 2, 3,):
+            if index.column() in (1, 2, 3,):
                 return Qt.AlignCenter
-        if role == Qt.EditRole:
-            if index.column() == 3:
-                return QDateTime(datetime.fromtimestamp(data))
-        if role == Qt.DisplayRole:
-            if index.column() == 3:
-                if isinstance(data, QDateTime):
-                    # for some reason, sometimes I get the QDateTime object here..
-                    data = data.toSecsSinceEpoch()
-                return datetime.fromtimestamp(data).ctime()
-        return data
+
+        return super().data(index, role)
 
 
 class ImportLine(QueryMixin, QSqlTableModel):
@@ -383,10 +386,10 @@ class ImportLine(QueryMixin, QSqlTableModel):
                 line_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 survey_id INTEGER,
                 line_reference_id INTEGER,
-                direction TEXT,
-                device_properties TEXT,
                 line_name TEXT,
-                line_comment TEXT
+                direction TEXT,
+                line_comment TEXT,
+                device_properties TEXT
             )
         """
         self.db_exec(query)
@@ -453,14 +456,34 @@ class ImportLine(QueryMixin, QSqlTableModel):
 
         self.setHeaderData(0, Qt.Horizontal, "Survey id")
         self.setHeaderData(1, Qt.Horizontal, "Line id")
-        self.setHeaderData(2, Qt.Horizontal, "Device reference id")
-        self.setHeaderData(3, Qt.Horizontal, "Survey direction")
-        self.setHeaderData(4, Qt.Horizontal, "Device properties")
-        self.setHeaderData(5, Qt.Horizontal, "Line name")
-        self.setHeaderData(6, Qt.Horizontal, "Line comment")
+        self.setHeaderData(2, Qt.Horizontal, "ID")
+        self.setHeaderData(3, Qt.Horizontal, "Line name")
+        self.setHeaderData(4, Qt.Horizontal, "Direction")
+        self.setHeaderData(5, Qt.Horizontal, "Comment")
+        self.setHeaderData(6, Qt.Horizontal, "Device properties")
+
+    def set_column_widths(self, view):
+        if Preferences.debug() is False:
+            view.setColumnHidden(0, True)
+            view.setColumnHidden(1, True)
+            view.setColumnHidden(6, True)
+
+        view.setColumnWidth(0, 20)
+        view.setColumnWidth(1, 100)
+        view.setColumnWidth(2, 110)
+        view.setColumnWidth(3, 100)
+        view.setColumnWidth(4, 120)
+        view.setColumnWidth(5, 140)
+
+        drop = DropDown(self)
+        drop.setOptions((SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT))
+        view.setItemDelegateForColumn(4, drop)
+
+        comment = CommentEditor(self)
+        view.setItemDelegateForColumn(5, comment)
 
     def flags(self, index: QModelIndex):
-        if index.column() in (0, 1, 2, 4,):
+        if index.column() in (0,1, 6):
             return Qt.NoItemFlags
 
         return Qt.ItemIsEditable | Qt.ItemIsEnabled
@@ -468,41 +491,38 @@ class ImportLine(QueryMixin, QSqlTableModel):
     def data(self, index, role):
         data = super().data(index, role)
         if role == Qt.TextAlignmentRole:
-            if index.column() in (1, 2, 3,):
+            if index.column() in (2, 3, 4,):
                 return Qt.AlignCenter
-        # if role == Qt.EditRole:
-        #     if index.column() == 3:
-        #         # render an dropBox
-        #         return
+
         return data
 
 
 class ImportStation(QueryMixin, QSqlTableModel):
 
+
     def create_database_tables(self):
-        query = f"""
-            CREATE TABLE IF NOT EXISTS {SQL_TABLE_IMPORT_STATIONS} (
-                station_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                line_id INTEGER,
-                survey_id INTEGER,
-                station_reference_id INTEGER,
-                line_reference_id INTEGER,
-                station_name TEXT,
-                length_in REAL,
-                azimuth_in REAL,
-                depth REAL,
-                azimuth_out REAL,
-                azimuth_out_avg REAL,
-                length_out REAL,
-                station_comment TEXT,
-                device_properties TEXT,
-                longitude REAL DEFAULT NULL,
-                latitude REAL DEFAULT NULL,
-                marker INTEGER DEFAULT 0
-            )
-        """
         # reference_id is the "id" as provider by the Mnemo.
         # so it is a local reference id only unique to the section itself.
+        query = f"""
+                    CREATE TABLE IF NOT EXISTS {SQL_TABLE_IMPORT_STATIONS} (
+                        station_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        line_id INTEGER,
+                        survey_id INTEGER,
+                        line_reference_id INTEGER,
+                        station_reference_id INTEGER,
+                        station_name TEXT,
+                        length_in REAL,
+                        azimuth_in REAL,
+                        depth REAL,
+                        azimuth_out REAL,
+                        azimuth_out_avg REAL,
+                        length_out REAL,
+                        longitude REAL DEFAULT NULL,
+                        latitude REAL DEFAULT NULL,
+                        station_comment TEXT,
+                        device_properties TEXT
+                    )
+                """
         self.db_exec(query)
 
     def drop_database_tables(self):
@@ -520,34 +540,34 @@ class ImportStation(QueryMixin, QSqlTableModel):
         return self.db_insert_bulk(SQL_TABLE_IMPORT_STATIONS, table_data)
 
     def insert(self,
-                       survey_id: int,
-                       line_id: int,
-                       line_reference_id: int,
-                       station_reference_id: int,
-                       length_in: float,
-                       length_out: float,
-                       azimuth_in: float,
-                       azimuth_out: float,
-                       azimuth_out_avg: float,
-                       depth: float,
-                       station_properties: dict = {},
-                       station_name: str = ''
-                       ) -> int:
+               survey_id: int,
+               line_id: int,
+               line_reference_id: int,
+               station_reference_id: int,
+               length_in: float,
+               length_out: float,
+               azimuth_in: float,
+               azimuth_out: float,
+               azimuth_out_avg: float,
+               depth: float,
+               station_properties: dict = {},
+               station_name: str = ''
+               ) -> int:
         data = {
-                'station_id': None,
-                'line_id': line_id,
-                'survey_id': survey_id,
-                'line_reference_id': line_reference_id,
-                'station_reference_id': station_reference_id,
-                'length_in': length_in,
-                'length_out': length_out,
-                'azimuth_in': azimuth_in,
-                'azimuth_out': azimuth_out,
-                'azimuth_out_avg': azimuth_out_avg,
-                'depth': depth,
-                'device_properties': json.dumps(station_properties),
-                'station_name': station_name
-            }
+            'station_id': None,
+            'line_id': line_id,
+            'survey_id': survey_id,
+            'line_reference_id': line_reference_id,
+            'station_reference_id': station_reference_id,
+            'length_in': length_in,
+            'length_out': length_out,
+            'azimuth_in': azimuth_in,
+            'azimuth_out': azimuth_out,
+            'azimuth_out_avg': azimuth_out_avg,
+            'depth': depth,
+            'device_properties': json.dumps(station_properties),
+            'station_name': station_name
+        }
 
         return self.db_insert(SQL_TABLE_IMPORT_STATIONS, data)
 
@@ -574,31 +594,60 @@ class ImportStation(QueryMixin, QSqlTableModel):
         self.setHeaderData(0, Qt.Horizontal, "Station id")
         self.setHeaderData(1, Qt.Horizontal, "Line id")
         self.setHeaderData(2, Qt.Horizontal, "Survey id")
-        self.setHeaderData(3, Qt.Horizontal, "Device reference id")
+        self.setHeaderData(3, Qt.Horizontal, "ID")
         self.setHeaderData(4, Qt.Horizontal, "Device line reference id")
         self.setHeaderData(5, Qt.Horizontal, "Station name")
         self.setHeaderData(6, Qt.Horizontal, "Length in")
         self.setHeaderData(7, Qt.Horizontal, "Azimuth in")
         self.setHeaderData(8, Qt.Horizontal, "Depth")
         self.setHeaderData(9, Qt.Horizontal, "Azimuth out")
-        self.setHeaderData(10, Qt.Horizontal, "Azimuth")
+        self.setHeaderData(10, Qt.Horizontal, "Azimuth corrected")
         self.setHeaderData(11, Qt.Horizontal, "Length out")
+        self.setHeaderData(13, Qt.Horizontal, "Latitude")
+        self.setHeaderData(14, Qt.Horizontal, "Longitude")
         self.setHeaderData(12, Qt.Horizontal, "Station Comment")
-        self.setHeaderData(13, Qt.Horizontal, "Device properties")
+        self.setHeaderData(15, Qt.Horizontal, "Device properties")
 
-    def flags(self, index: QModelIndex):
-        if index.column() in (0, 1, 2, 3, 4, 13, 7,9):
-            return Qt.NoItemFlags
+    def set_column_widths(self, view):
+        view.setColumnHidden(1, True)
+        view.setColumnHidden(2, True)
+        view.setColumnHidden(4, True)
 
-        return Qt.ItemIsEditable | Qt.ItemIsEnabled
+        if Preferences.debug() is False:
+            view.setColumnHidden(0, True)
+            view.setColumnHidden(15, True)
 
-    def data(self, index, role):
-        data = super().data(index, role)
-        if role == Qt.TextAlignmentRole:
-            if index.column() in (0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11,):
-                return Qt.AlignCenter
 
-        return data
+        view.setColumnWidth(0, 60)
+        view.setColumnWidth(1, 70)
+        view.setColumnWidth(2, 110)
+        view.setColumnWidth(3, 100)
+        view.setColumnWidth(4, 120)
+        view.setColumnWidth(5, 140)
+        view.setColumnWidth(6, 140)
+        view.setColumnWidth(7, 140)
+        view.setColumnWidth(8, 140)
+        view.setColumnWidth(9, 140)
+        view.setColumnWidth(10, 140)
+        view.setColumnWidth(11, 140)
+        view.setColumnWidth(12, 140)
+        view.horizontalHeader().setStretchLastSection(True)
+
+
+
+    # def flags(self, index: QModelIndex):
+    #     if index.column() in (0, 1, 2, 3, 4, 13, 7,9):
+    #         return Qt.NoItemFlags
+    #
+    #     return Qt.ItemIsEditable | Qt.ItemIsEnabled
+    #
+    # def data(self, index, role):
+    #     data = super().data(index, role)
+    #     if role == Qt.TextAlignmentRole:
+    #         if index.column() in (0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11,):
+    #             return Qt.AlignCenter
+    #
+    #     return data
 
 
 class MapLine(QueryMixin, QSqlTableModel):

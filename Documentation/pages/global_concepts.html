@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Stickmaps global concepts</title>
+</head>
+<body>
+    <h3>Stations as base-units</h3>
+    <p>
+        Stickmaps is build around the concept of "survey stations" where a "line" is just the connection between two stations.
+        It is important to remember this when converting from one program to another as others might use lines as their base unit.
+    </p>
+    <h3>Order of measurements</h3>
+    <p>
+        Keeping things clear and making things easy are two different things, in Stickmaps we chose to keep things clear while making them as simple as possible.
+        The most important thing to remember is "Stations are our base-unit", and from there we measure.
+    </p>
+        <dl>
+            <dt>Length in</dt>
+            <dd>We measure the length from the previous station to the current one.</dd>
+            <dt>Azimuth in</dt>
+            <dd>We measure azimuth from the previous station to the current one.</dd>
+            <dt>Depth</dt>
+            <dd>We measure depth of the current station.</dd>
+            <dt>Azimuth out</dt>
+            <dd>We measure the azimuth from the current station to the next station</dd>
+            <dt>Length out</dt>
+            <dd>We measure the length from the current station to the next station</dd>
+        </dl>
+    
+    <h3>We use Drag&Drop</h3>
+    <p>
+        We have chosen for a visual approach when it comes to the user interface.
+        For instance; importing lines to your maps should be a visual experience, just as removing a line should not require you to select stations in a grid-view.
+        As a result of this, some elements in our interface are done by Drag&Drop, there will be no button in order to do so.
+    </p>
+    <h3>SQL enabled</h3>
+    <p>
+        We have chosen to use SQL as a database backend, this enables you as a user to break in to the internal data-structure.
+        If you know (or a re willing to learn) SQL, you can manualy retrieve and/or modify every single piece of data that flows through the application from within any SQL-client of your choice.
+    </p>
+    <h3>We import anything</h3>
+    <p>
+        We are constantly looking to improve on our importing features!
+        If you have a device that you would like to see supported, a specific file format that you would like to be able to open.
+        Let us know!
+    </p>
+
+</body>
+</html>

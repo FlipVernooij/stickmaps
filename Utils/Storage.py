@@ -61,16 +61,12 @@ class SaveFile():
         self.sql_manager.flush_db()
         sql = self.sql_manager.factor(ProjectSettings)
         sql.insert(project_name, latitude, longitude)
+        self.save_to_file()
         self._update_ui(project_name)
         return True
 
     def _update_ui(self, project_name):
-        self.parent.statusBar().showMessage(f'Project {project_name} loaded', MAIN_WINDOW_STATUSBAR_TIMEOUT)
-        self.parent.setWindowTitle(f'{project_name} -- {MAIN_WINDOW_TITLE}')
-        self.parent.tree_view.model().reload()
-        self.parent.tree_view.setDisabled(False)
-        self.parent.map_view.setDisabled(False)
-        self.parent.menuBar().setDisabled(False)
+        self.parent.start_project(project_name)
 
     def _open_file(self) -> dict:
         data = self._read()

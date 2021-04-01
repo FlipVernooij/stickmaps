@@ -38,6 +38,8 @@ class MainMenu:
         actions = GlobalActions(self.parent_window)
         mb = self.parent_window.menuBar()
         fm = mb.addMenu('Help')
+
+        fm.addAction(actions.documentation())
         fm.addAction(actions.about_qt())
 
     def set_import_menu(self):

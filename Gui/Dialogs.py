@@ -1,24 +1,22 @@
-import os
 import pathlib
 
 import PySide6
 from PySide6 import QtCore
 from PySide6.QtCore import QDateTime, QSysInfo, QSettings
-from PySide6.QtGui import Qt, QFont, QPixmap
+from PySide6.QtGui import Qt, QPixmap
 from PySide6.QtSql import QSqlTableModel
 from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, QMessageBox, QApplication, QFormLayout, \
-    QLineEdit, QDateTimeEdit, QTextEdit, QDialogButtonBox, QVBoxLayout, QDoubleSpinBox, QListWidget, \
-    QCheckBox, QComboBox, QSpinBox, QLabel, QPushButton, QFileDialog, QWizard
+    QLineEdit, QDateTimeEdit, QTextEdit, QDialogButtonBox, QVBoxLayout, QDoubleSpinBox, QListWidget, QComboBox, QLabel, \
+    QPushButton, QFileDialog, QSizePolicy, QTextBrowser
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, MNEMO_DEVICE_DESCRIPTION, DEBUG, \
     MNEMO_DEVICE_NAME, MNEMO_BAUDRATE, MNEMO_TIMEOUT, MNEMO_CYCLE_COUNT, SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT, \
-    SQL_DB_LOCATION, DEFAULT_LATITUDE, DEFAULT_LONGITUDE, GOOGLE_MAPS_SCALING, APPLICATION_CACHE_DIR, \
-    APPLICATION_CACHE_MAX_SIZE, APPLICATION_TMP_DIR, APPLICATION_SPLASH_IMAGE, APPLICATION_DEFAULT_PROJECT_NAME, \
-    APPLICATION_DEFAULT_FILE_NAME, APPLICATION_NEWPROJECT_IMAGE, APPLICATION_VERSION, MAIN_WINDOW_TITLE, \
-    APPLICATION_FILE_EXTENSION
+    SQL_DB_LOCATION, GOOGLE_MAPS_SCALING, APPLICATION_CACHE_DIR, APPLICATION_CACHE_MAX_SIZE, APPLICATION_TMP_DIR, \
+    APPLICATION_DEFAULT_PROJECT_NAME, APPLICATION_DEFAULT_FILE_NAME, APPLICATION_VERSION, APPLICATION_FILE_EXTENSION, \
+    APPLICATION_STARTUP_DIALOG_IMAGE, DOCS_SEARCH_PATHS
 from Gui.Delegates.FormElements import DropDown
 from Gui.Mixins import FormMixin
-from Models.TableModels import ImportLine, ImportSurvey, ImportStation, SqlManager, ProjectSettings
+from Models.TableModels import SqlManager, ProjectSettings
 from Utils.Settings import Preferences
 
 import traceback
@@ -119,7 +117,7 @@ class ErrorDialog:
     def show(cls, message):
         # how do I know or i am in a main window... or headless
         if QApplication.instance() is not None:
-            QMessageBox.warning(None, APPLICATION_NAME, message)
+            QMessageBox.warning(QApplication.instance(), APPLICATION_NAME, message)
         else:
             print(f"ERROR: {message}")
 
@@ -387,6 +385,21 @@ class PreferencesDialog(QDialog, FormMixin):
 
         super().close()
 
+class DocumentationDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        browser = QTextBrowser(self)
+
+        browser.setOpenLinks(True)
+        browser.setSearchPaths(DOCS_SEARCH_PATHS)
+        browser.setSource(f'index.html')
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(browser)
+        self.setLayout(layout)
+        self.show()
+
+
 
 class NewProjectDialog(QDialog, FormMixin):
 
@@ -400,8 +413,11 @@ class NewProjectDialog(QDialog, FormMixin):
                     },
                     "file_name": {
                         "label": "File name",
-                        "form_field": "file_path",
+                        "form_field": "save_file_path",
                         "default_value": APPLICATION_DEFAULT_FILE_NAME
+                    },
+                    "spacer": {
+                        "form_field": "spacer",
                     },
                     "use_geo": {
                         "label": "Use geo-location",
@@ -436,35 +452,28 @@ class NewProjectDialog(QDialog, FormMixin):
                     }
             }
     }
+
     def __init__(self, parent, startup_widget=None):
         super().__init__(parent)
         self.parent = parent
         self.startup_widget = startup_widget
-        self.setWindowTitle(f'Create project')
+        self.setWindowTitle(f'Create new project')
         self.setFixedSize(800, 400)
+        self.parent.disable_ui()
 
-        hlayout = QHBoxLayout()
-        label = QLabel()
-        pixmap = QPixmap(APPLICATION_NEWPROJECT_IMAGE)
-        pixmap.scaledToWidth(200)
-        label.setPixmap(pixmap)
-        hlayout.addWidget(label)
+
         form_layout = QFormLayout()
-        form_layout.setContentsMargins(20, 0, 20, 20)
-        hlayout.addLayout(form_layout)
-
         self.generate_form(self.FORM, form_layout)
         self.form_layout = form_layout
 
-        self.parent.tree_view.setDisabled(True)
-        self.parent.map_view.setDisabled(True)
-        self.parent.menuBar().setDisabled(True)
-        self.setLayout(hlayout)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok)
-        self.form_layout .addRow(buttons)
-
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.create_project)
+        buttons.rejected.connect(self.cancel)
+        main_layout = QVBoxLayout(self)
+        main_layout.addLayout(self.form_layout)
+        main_layout.addWidget(buttons)
+        self.setLayout(main_layout)
 
     def _toggle_geo_location(self):
         toggle = self.FORM['fields']['use_geo']['form_element']
@@ -488,6 +497,9 @@ class NewProjectDialog(QDialog, FormMixin):
         save.create_new_project(project_name, latitude, longitude)
         self.close()
 
+    def cancel(self):
+        return self.close()
+
     def closeEvent(self, event) -> None:
         project = SqlManager().factor(ProjectSettings).get()
         if project is None:
@@ -499,9 +511,7 @@ class NewProjectDialog(QDialog, FormMixin):
             event.ignore()
             return
 
-        self.parent.tree_view.setDisabled(False)
-        self.parent.map_view.setDisabled(False)
-        self.parent.menuBar().setDisabled(False)
+        self.parent.enable_ui()
         event.accept()
 
 
@@ -529,15 +539,28 @@ class OpenProjectDialog(QFileDialog):
             self.setWindowTitle('Open project')
 
             self.fileSelected.connect(self.open)
-
-
         except Exception as err_mesg:
             ErrorDialog.show_error_key(self.parent, str(err_mesg))
 
     def open(self, file):
         save = SaveFile(self.parent, file)
         save.open_project()
+
         self.close()
+
+    def reject(self):
+        project = SqlManager().factor(ProjectSettings).get()
+        if project is None:
+            if self.startup_widget is not None:
+                self.startup_widget.show()
+                self.close()
+                return
+
+            QMessageBox.information(self.parent, "You have to create a project",
+                                    "Please create a project before exiting this wizard")
+            return
+
+        self.parent.enable_ui()
 
     def closeEvent(self, event) -> None:
         project = SqlManager().factor(ProjectSettings).get()
@@ -552,9 +575,7 @@ class OpenProjectDialog(QFileDialog):
             event.ignore()
             return
 
-        self.parent.tree_view.setDisabled(False)
-        self.parent.map_view.setDisabled(False)
-        self.parent.menuBar().setDisabled(False)
+        self.parent.enable_ui()
         event.accept()
 
 
@@ -563,28 +584,37 @@ class StartupWidget(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
-        self.setWindowTitle(f'Welcome to {APPLICATION_NAME}')
-        self.setFixedSize(800, 400)
+        self.parent.disable_ui()
+        self.setWindowTitle(f'Welcome!')
+        self.setFixedSize(300, 200)
 
-        hlayout = QHBoxLayout()
-        label = QLabel()
-        pixmap = QPixmap(APPLICATION_NEWPROJECT_IMAGE)
-        pixmap.scaledToWidth(200)
-        label.setPixmap(pixmap)
-        hlayout.addWidget(label)
-        button_layout = QVBoxLayout()
-       # button_layout.setContentsMargins(20, 0, 20, 20)
-        hlayout.addLayout(button_layout)
+        pixmap = QPixmap(APPLICATION_STARTUP_DIALOG_IMAGE)
+        logo = QLabel(self)
+        logo.setPixmap(pixmap)
+        logo.setAlignment(Qt.AlignCenter)
+        version = QLabel(f'{APPLICATION_NAME} v: {APPLICATION_VERSION}')
+        version.setAlignment(Qt.AlignCenter)
 
         new_project = QPushButton("Create new project")
         open_project = QPushButton("Open existing project")
-
         new_project.clicked.connect(self.show_new_project)
         open_project.clicked.connect(self.show_open_project)
-        button_layout.addWidget(new_project)
-        button_layout.addWidget(open_project)
+        new_project.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        open_project.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
-        self.setLayout(hlayout)
+        layout = QVBoxLayout()
+        layout.addSpacing(10)
+        layout.addWidget(logo)
+        layout.addWidget(version)
+        layout.addSpacing(20)
+        layout.addStretch()
+        layout.addWidget(open_project)
+
+        layout.addWidget(new_project)
+        layout.addStretch()
+        layout.setAlignment(Qt.AlignCenter)
+
+        self.setLayout(layout)
 
     def closeEvent(self, event) -> None:
         project = SqlManager().factor(ProjectSettings).get()
@@ -594,9 +624,7 @@ class StartupWidget(QDialog):
             event.ignore()
             return
 
-        self.parent.tree_view.setDisabled(False)
-        self.parent.map_view.setDisabled(False)
-        self.parent.menuBar().setDisabled(False)
+        self.parent.enable_ui()
         event.accept()
 
     def show_new_project(self):
@@ -618,13 +646,6 @@ class EditSurveysDialog(QDialog):
         self.item = selected_item
         model = selected_item.model()
         model.setEditStrategy(QSqlTableModel.OnManualSubmit)
-
-        model.setHeaderData(0, Qt.Horizontal, "Survey ID")
-        model.setHeaderData(1, Qt.Horizontal, "Device name")
-        model.setHeaderData(2, Qt.Horizontal, "Device properties")
-        model.setHeaderData(3, Qt.Horizontal, "Date & time")
-        model.setHeaderData(4, Qt.Horizontal, "Survey name")
-        model.setHeaderData(5, Qt.Horizontal, "Survey comment")
         model.select()
 
         view = QTableView(self)
@@ -633,16 +654,12 @@ class EditSurveysDialog(QDialog):
         view.setSortingEnabled(True)
         view.sortByColumn(0, Qt.AscendingOrder)
         view.setSelectionMode(QTableView.NoSelection)
-        view.setColumnWidth(0, 75)
-        view.setColumnWidth(1, 100)
-        view.setColumnWidth(2, 110)
-        view.setColumnWidth(3, 160)
-        view.setColumnWidth(4, 140)
+
+        model.set_column_widths(view)
+
         view.horizontalHeader().setStretchLastSection(True)
 
-        if Preferences.debug() is False:
-            view.setColumnHidden(0, True)
-            view.setColumnHidden(2, True)
+
 
         self.setWindowTitle('Edit surveys')
         self.resize(800, 400)
@@ -752,7 +769,6 @@ class EditLinesDialog(QDialog):
         model.setEditStrategy(QSqlTableModel.OnManualSubmit)
         model.setFilter(f'survey_id={self.survey_id}')
 
-
         model.select()
 
         view = QTableView(self)
@@ -761,22 +777,9 @@ class EditLinesDialog(QDialog):
         view.setSortingEnabled(True)
         view.sortByColumn(0, Qt.AscendingOrder)
         view.setSelectionMode(QTableView.NoSelection)
-        view.setColumnWidth(0, 60)
-        view.setColumnWidth(1, 70)
-        view.setColumnWidth(2, 110)
-        view.setColumnWidth(3, 100)
-        view.setColumnWidth(4, 120)
-        view.setColumnWidth(5, 140)
+        model.set_column_widths(view)
+
         view.horizontalHeader().setStretchLastSection(True)
-
-        delegate = DropDown(self)
-        delegate.setOptions((SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT))
-        view.setItemDelegateForColumn(3, delegate)
-
-        view.setColumnHidden(1, True)  # survey_id
-        if Preferences.debug() is False:
-            view.setColumnHidden(0, True)  #line_id
-            view.setColumnHidden(4, True)
 
         layout = QVBoxLayout()
         layout.addWidget(view)
@@ -787,9 +790,6 @@ class EditLinesDialog(QDialog):
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.cancel)
         buttons.button(QDialogButtonBox.Reset).clicked.connect(self.reset)
-
-
-
 
         self.table_view = view
         self.setLayout(layout)
@@ -878,10 +878,14 @@ class EditStationsDialog(QDialog):
         self.item = item
         self.setWindowTitle('Edit stations')
         self.resize(800, 400)
+
+
+
         model = item.child_model()
+        model.select()
         model.setEditStrategy(QSqlTableModel.OnManualSubmit)
         model.setFilter(f'line_id={self.line_id}')
-        model.select()
+
 
         view = QTableView(self)
         view.setModel(model)
@@ -889,27 +893,9 @@ class EditStationsDialog(QDialog):
         view.setSortingEnabled(True)
         view.sortByColumn(0, Qt.AscendingOrder)
         view.setSelectionMode(QTableView.NoSelection)
-        view.setColumnWidth(0, 60)
-        view.setColumnWidth(1, 70)
-        view.setColumnWidth(2, 110)
-        view.setColumnWidth(3, 100)
-        view.setColumnWidth(4, 120)
-        view.setColumnWidth(5, 140)
-        view.setColumnWidth(6, 140)
-        view.setColumnWidth(7, 140)
-        view.setColumnWidth(8, 140)
-        view.setColumnWidth(9, 140)
-        view.setColumnWidth(10, 140)
-        view.setColumnWidth(11, 140)
-        view.setColumnWidth(12, 140)
-        view.horizontalHeader().setStretchLastSection(True)
+        model.set_column_widths(view)
 
-        view.setColumnHidden(1, True)
-        view.setColumnHidden(2, True)
-        if Preferences.debug() is False:
-            view.setColumnHidden(0, True)
-            view.setColumnHidden(4, True)
-            view.setColumnHidden(13, True)
+
 
         layout = QVBoxLayout()
         layout.addWidget(view)

@@ -11,7 +11,7 @@ from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, AP
 from Config.KeyboardShortcuts import KEY_IMPORT_MNEMO_CONNECT, KEY_IMPORT_MNEMO_DUMP_FILE, KEY_QUIT_APPLICATION, \
     KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW, KEY_IMPORT_MNEMO_DUMP, KEY_PREFERENCES
 from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditLinesDialog, EditLineDialog, EditStationsDialog, \
-    EditStationDialog, PreferencesDialog, NewProjectDialog, OpenProjectDialog
+    EditStationDialog, PreferencesDialog, NewProjectDialog, OpenProjectDialog, DocumentationDialog
 from Gui.Dialogs import EditSurveysDialog
 from Importers.Mnemo import MnemoImporter
 from Utils.Settings import Preferences
@@ -268,6 +268,15 @@ class GlobalActions(ThreadWithProgressBar):
 
     def about_qt_callback(self):
         QMessageBox.aboutQt(self.parent, 'About QT')
+
+    def documentation(self):
+        action = QAction('Documentation', self.parent)
+        action.triggered.connect(lambda: self.documentation_callback())
+        return action
+
+    def documentation_callback(self):
+        docs = DocumentationDialog(self.parent)
+        docs.show()
 
 class TreeActions:
 

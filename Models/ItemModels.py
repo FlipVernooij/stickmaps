@@ -365,6 +365,9 @@ class MapsItem(QStandardItem, ItemMixin):
         row = self._child_model.get(line_id)
         self._add_child(self.CHILD_PREPEND, row)
 
+    def delete_children(self):
+        self.removeRows(0, self.rowCount())
+
     def append_child(self, line_id: int):
         row = self._child_model.get(line_id)
         self._add_child(self.CHILD_APPEND, row)
@@ -398,8 +401,13 @@ class ProxyModel(QStandardItemModel, ItemMixin):
         self.appendRow(self._map_item)
 
     def reload(self):
-        self.import_item().append_children()
-        self.map_item().append_children()
+        imp = self.import_item()
+        mp = self.map_item()
+        imp.delete_children()
+        mp.delete_children()
+
+        imp.append_children()
+        mp.append_children()
 
     def import_item(self) -> ImportItem:
         return self._import_item

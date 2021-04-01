@@ -9,7 +9,7 @@ from Config.Constants import APPLICATION_DEFAULT_FILE_NAME, APPLICATION_FILE_EXT
 from Utils.Settings import Preferences
 
 
-class FormMixin():
+class FormMixin:
 
     def field_changed(self, arg=None):
         self.form_changed = True
@@ -26,6 +26,10 @@ class FormMixin():
                 self.generate_form(element, el, True)
                 form_layout.addRow(element['label'], el)
                 continue
+            if element['form_field'] == 'spacer':
+                form_layout.addRow("  ", None)  # Don't remove spaces ;p
+                continue
+
             if 'default_value' in element and 'settings_key' in element:
                 element['default_value'] = Preferences.get(element['settings_key'], element['default_value'])
             form_fields['fields'][key]['form_element'] = self.get_field(element)
@@ -94,9 +98,10 @@ class FormMixin():
                 element['value'] = getattr(self, element["value_from_function"])(element)
             el = QTextEdit(element['value'])
             el.setDisabled(True)
-        elif f == 'file_path':
+        elif f == 'save_file_path':
             el = QHBoxLayout()
             file_path = QLineEdit(self)
+            file_path.setClearButtonEnabled(True)
             settings = QSettings()
             file_name = f'{settings.value("SaveFile/last_path", str(pathlib.Path.home()))}/{APPLICATION_DEFAULT_FILE_NAME}'
             file_path.setText(file_name)
@@ -104,12 +109,15 @@ class FormMixin():
             style = self.style()
             button = QPushButton(QIcon(style.standardIcon(style.SP_DirHomeIcon)), 'Choose file')
             el.addWidget(button)
-            button.clicked.connect(lambda: self._show_path_dialog(file_path))
+            button.clicked.connect(lambda: self._show_save_path_dialog(file_path))
         elif f == 'radio_button':
             el = QRadioButton()
         elif f == 'group_field':
             # lets ignore this one and parse it at the generate form...
             # this way we can easily add the objects to the form array.
+            return None
+        elif f == 'spacer':
+            # lets ignore this one and parse it at the generate form...
             return None
         else:
             el = QLabel(f"Unknown form_field {f}")
@@ -142,12 +150,12 @@ class FormMixin():
             return e.currentText()
         elif f == 'spinner':
             return e.value()
-        elif f == 'file_path':
+        elif f in ('save_file_path', 'open_file_path',):
             return e.itemAt(0).widget().text()
         else:
             raise AttributeError(f'Unknown form_field in preferences plain: "{f}"')
 
-    def _show_path_dialog(self, form_field: QLineEdit):
+    def _show_save_path_dialog(self, form_field: QLineEdit):
         settings = QSettings()
         file_regex = f'(*.{APPLICATION_FILE_EXTENSION})'
         file_ident = f'{APPLICATION_NAME} {file_regex}'
@@ -155,7 +163,7 @@ class FormMixin():
         dialog.setWindowTitle('Create file')
         dialog.setFilter(dialog.filter())
         dialog.setDefaultSuffix(APPLICATION_FILE_EXTENSION)
-        dialog.setAcceptMode(QFileDialog.AcceptOpen)
+        dialog.setAcceptMode(QFileDialog.AcceptSave)
         dialog.setNameFilters([file_ident])
         dialog.setDirectory(settings.value('SaveFile/last_path', str(pathlib.Path.home())))
         dialog.setOption(QFileDialog.DontUseNativeDialog)
