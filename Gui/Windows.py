@@ -1,21 +1,21 @@
 import logging
 import os
 
-from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal
-from PySide6.QtGui import QIcon, Qt, QCloseEvent, QPalette, QDrag, QScreen, QPixmap, QColor
+from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal, QPointF
+from PySide6.QtGui import QIcon, Qt, QCloseEvent, QDrag, QPixmap, QColor, QWheelEvent, QResizeEvent
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
-    QAbstractItemView, QVBoxLayout, QTextBrowser, QPushButton, QComboBox, QHBoxLayout, QGraphicsView, QToolBar, \
-    QSplashScreen
+    QAbstractItemView, QVBoxLayout, QTextBrowser, QPushButton, QComboBox, QHBoxLayout, QGraphicsView, QSplashScreen
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
     MAIN_WINDOW_ICON, DEBUG, APPLICATION_SPLASH_IMAGE
 from Gui.Actions import GlobalActions
-from Gui.Dialogs import NewProjectDialog, StartupWidget
-from Gui.Menus import MainMenu, ContextMenuSurvey, ContextMenuLine, ContextMenuStation, ContextMenuImports
+from Gui.Dialogs import StartupWidget
+from Gui.Scene.MainScene import MainScene
+from Gui.Menus import MainMenu, ContextMenuSurvey, ContextMenuLine, ContextMenuStation, ContextMenuImports, MapsToolBar
 from Models.ItemModels import ProxyModel
 from Models.TableModels import SqlManager
 from Utils.Logging import LogStream
-from Utils.Rendering import DragImage, MapScene
+from Utils.Rendering import DragImage
 from Utils.Settings import Preferences
 from Utils.Storage import SaveFile
 
@@ -49,49 +49,59 @@ class MainApplicationWindow(QMainWindow):
         self.statusBar().showMessage(f'Project {project_name} loaded', MAIN_WINDOW_STATUSBAR_TIMEOUT)
         self.setWindowTitle(f'{project_name} -- {MAIN_WINDOW_TITLE}')
         self.tree_view.model().reload()
+        self.map_view.map_scene.reload()
         self.enable_ui()
 
     def __init__(self):
         super(MainApplicationWindow, self).__init__()
+        self.log = logging.getLogger(__name__)
         self.setWindowTitle(MAIN_WINDOW_TITLE)
         self.setWindowIcon(QIcon(MAIN_WINDOW_ICON))
         self.statusBar().showMessage('Loading ...', MAIN_WINDOW_STATUSBAR_TIMEOUT)
-        self.read_settings()
+
 
         self.sql_manager = self.init_database()
 
+        main_menu = MainMenu(self)
+        main_menu.generate()
 
         self.debug_console = QDockWidget('Debug console', self)
         self.debug_console.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
         self.debug_console.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea | Qt.RightDockWidgetArea)
-        inner = DebugConsole(self)
-        self.debug_console.setWidget(inner)
+        self.debug_console.setWidget(DebugConsole(self))
         self.addDockWidget(Qt.BottomDockWidgetArea, self.debug_console)
         self.toggle_debug_console(Preferences.get('debug', DEBUG, bool))
 
-        dock = QDockWidget("Survey data", self)
-        dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
-        dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.tree_view = SurveyOverview(self)
-        dock.setWidget(self.tree_view)
-        self.addDockWidget(Qt.LeftDockWidgetArea, dock)
+        tree_dock = QDockWidget("Survey data", self)
+        tree_dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
+        tree_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        tree_dock.setWidget(self.tree_view)
+        self.addDockWidget(Qt.LeftDockWidgetArea, tree_dock)
 
         self.map_view = MapView(self)
         self.setCentralWidget(self.map_view)
 
-        self.setup_interface()
+        map_tools = QDockWidget("Tools", self)
+        map_tools.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
+        map_tools.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.TopDockWidgetArea | Qt.BottomDockWidgetArea)
+        map_tools.setWidget(MapsToolBar(self, self.map_view))
+        self.addDockWidget(Qt.RightDockWidgetArea, map_tools)
 
+        self.read_settings()
         self.show()
         self.setFocus()
+
         settings = QSettings()
         file_name = settings.value('SaveFile/current_file_name', None)
         if file_name is not None and os.path.exists(file_name):
             project = SaveFile(self, file_name)
             project.open_project()
             return
+
         self.sql_manager.flush_db()
-        new_file = StartupWidget(self)
-        new_file.show()
+        wizard = StartupWidget(self)
+        wizard.show()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if Preferences.get('debug', DEBUG, bool) is True:
@@ -109,25 +119,13 @@ class MainApplicationWindow(QMainWindow):
         else:
             event.ignore()
 
-    def setup_interface(self):
-        main_menu = MainMenu(self)
-        main_menu.generate()
-
-
-
-
-        tools = QDockWidget("Tools", self)
-        tools.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetVerticalTitleBar)
-        tools.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea | Qt.TopDockWidgetArea | Qt.BottomDockWidgetArea)
-        tools.setWidget(QToolBar("Test this toolbar", self))
-        self.addDockWidget(Qt.RightDockWidgetArea, tools)
-
     def init_database(self):
         obj = SqlManager('default_db')
         obj.create_tables()
         return obj
 
     def write_settings(self):
+        self.log.debug('Writing settings')
         self.settings = QSettings()
         self.settings.beginGroup("MainWindow")
         self.settings.setValue("size", self.size())
@@ -135,6 +133,8 @@ class MainApplicationWindow(QMainWindow):
         self.settings.endGroup()
 
     def read_settings(self):
+
+        self.log.debug('Reading settings')
         self.settings = QSettings()
         self.settings.beginGroup("MainWindow")
         self.resize(self.settings.value("size", QSize(400, 400)))
@@ -226,94 +226,226 @@ class SurveyOverview(QTreeView):
 
 
 class MapView(QGraphicsView):
+    ZOOM_DEFAULT_LEVEL = 20.9
+    ZOOM_MAX_LEVEL = 20.9
+    ZOOM_MIN_LEVEL = 0
 
-    #  Received a mouse scroll, should get cursor location (Qpoint?) and the zoom "amount"
-    s_map_scale = Signal(int, QPoint)
-    s_map_rotate = Signal(int, QPoint)
-    s_map_move = Signal(QPoint)
+    # Called on a screen resize, this is ALSO TRIGGERED when opening the application and loading the view the first time.
+    s_resize_viewport = Signal(QSize)
+    # min zoom (world) = 0, max zoom (building) = 20.9
+    s_zoom_viewport = Signal(float, QPointF)
+    s_move_viewport = Signal(QPointF)
+    s_rotate_viewport = Signal(int)
 
-    s_show_stations = Signal(bool)
-    s_show_station_names = Signal(bool)
-    s_show_depths = Signal(bool)
+
+    # when the project changed or a new project is loaded, this signal is triggered
+    s_project_changed = Signal(dict)
+
+    # self.s_toggle_satellite.emit(None) to toggle the satellite overlay
+    # self.s_toggle_satellite.emit(True) to show
+    # self.s_toggle_satellite.emit(False) to hide
+    s_toggle_satellite = Signal(object)
+
+
+    # #  Received a mouse scroll, should get cursor location (Qpoint?) and the zoom "amount"
+    # s_map_zoom = Signal(int, QPointF)
+    # s_map_rotate = Signal(int, QPointF)
+    # s_map_move = Signal(QPointF)
+    #
+    # s_show_stations = Signal(bool)
+    # s_show_station_names = Signal(bool)
+    # s_show_depths = Signal(bool)
+    # s_toggle_satellite = Signal()
+    #
+    # ZOOM_MIN = 0
+    # ZOOM_MAX = 21
+    # ZOOM_DEFAULT = 20
 
     def __init__(self, parent):
+        """
+        To enable OpenGL rendering, you simply set a new QOpenGLWidget as the viewport of QGraphicsView by calling QGraphicsView::setViewport().
+        If you want OpenGL with antialiasing, you need to set a QSurfaceFormat with the needed sample count (see QSurfaceFormat::setSamples()).
+        https://doc.qt.io/qt-6/graphicsview.html
+
+        QGraphicsView view(&scene);
+        QOpenGLWidget *gl = new QOpenGLWidget();
+        QSurfaceFormat format;
+        format.setSamples(4);
+        gl->setFormat(format);
+        view.setViewport(gl);
+
+        :param parent:
+        """
         super().__init__(parent)
         self.log = logging.getLogger(__name__)
-
-        self.map_scale = 1
-        self.map_rotate = 0
-        self.map_move = 0
-
-        self.show_stations = True
-        self.show_station_names = True
-        self.show_depths = True
-
-        self.s_map_move.connect(self.c_map_move)
-        self.s_map_rotate.connect(self.c_map_rotate)
-        self.s_map_scale.connect(self.c_map_scale)
-
-        self.s_show_stations.connect(self.c_show_stations)
-        self.s_show_station_names.connect(self.c_show_station_names)
-        self.s_show_depths.connect(self.c_show_depths)
-
-        self.map_scene = MapScene(self)
+        self._current_zoom_level = self.ZOOM_DEFAULT_LEVEL
+        self.map_scene = MainScene(self)
         self.setScene(self.map_scene)
-
-        self.map_scene.load_map_from_database()
-
-        self.setAutoFillBackground(True)
-        self.setBackgroundRole(QPalette.Light)
-        self.setAcceptDrops(True)
         self.show()
 
-    def c_map_scale(self, zoom: int, cursor_location: QPoint):
-        self.log.debug(f'Signal map_scale({zoom}, {cursor_location})')
+    def get_zoom(self) -> float:
+        return self._current_zoom_level
 
-    def c_map_rotate(self, degrees: int, cursor_location: QPoint):
-        self.log.debug(f'Signal map_rotate({degrees}, {cursor_location})')
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        return
+        change = (event.angleDelta().y() / 1200) * 2.5 # 0.1 per bump * 2.5 = 0.25
+        zoom = self._current_zoom_level + change
+        if zoom > self.ZOOM_MAX_LEVEL:
+            zoom = self.ZOOM_MAX_LEVEL
+        elif zoom < self.ZOOM_MIN_LEVEL:
+            zoom = self.ZOOM_MIN_LEVEL
 
-    def c_map_move(self, move_to: QPoint):
-        self.log.debug(f'Signal map_move({move_to})')
+        self._current_zoom_level = round(zoom, 2)
+        self.s_zoom_viewport.emit(self._current_zoom_level, event.globalPosition())
 
-    def c_show_stations(self, show: bool):
-        self.log.debug(f'Signal show_stations({show})')
+        # @todo We should probably start of with a sensible size....
 
-    def c_show_station_names(self, show: bool):
-        self.log.debug(f'Signal show_station_namess({show})')
+        #
+        #
+        # self.map_zoom = self.ZOOM_DEFAULT
+        # self.map_rotate = 0
+        # self.map_move = 0
+        #
+        # self.show_stations = True
+        # self.show_station_names = True
+        # self.show_depths = True
+        #
+        # self.s_map_move.connect(self.c_map_move)
+        # self.s_map_rotate.connect(self.c_map_rotate)
+        # self.s_map_zoom.connect(self.c_map_zoom)
+        #
+        # self.s_show_stations.connect(self.c_show_stations)
+        # self.s_show_station_names.connect(self.c_show_station_names)
+        # self.s_show_depths.connect(self.c_show_depths)
+        #
+        # self.s_toggle_satellite.connect(self.c_toggle_satellite)
 
-    def c_show_depths(self, show: bool):
-        self.log.debug(f'Signal show_depths({show})')
 
-    # def event(self, event):
-    #     if event.type() not in [event.Type.Enter]:
-    #         print('scrolling')
+
+        # self.map_scene.load_map_from_database()
+
+
+        # self.setAcceptDrops(True)
+        #self.show()
+
+    def resizeEvent(self, event: QResizeEvent):
+        self.s_resize_viewport.emit(event.size())
+
+    #
+    # def c_map_zoom(self, zoom: int, zoom_center: QPointF):
+    #     """
+    #     For zooming we will use the google/bing zooming logic.
+    #
+    #     zoom 0 represents to hole world in a single tile
+    #     every zoom-level doubles the amount of tiles IN BOTH DIRECTIONS:
+    #
+    #      zoom 0   1
+    #      zoom 1   1|1
+    #               1|1
+    #      zoom 2   1|1|1|1
+    #               1|1|1|1
+    #               1|1|1|1
+    #               1|1|1|1
+    #      and so on.
+    #
+    #      This means that every zoom-level increases or decreases the shown grounds-area by a factor of 2.
+    #
+    #
+    #     https://www.microimages.com/documentation/TechGuides/80TilesetZoom.pdf
+    #
+    #     :param zoom:
+    #     :param zoom_center:
+    #     :return:
+    #     """
+    #     if zoom < 0:
+    #         zoom = 0  # is world
+    #
+    #     self.log.warning(f'zoom: {zoom} map_zoom: {self.map_zoom}')
+    #     #self.log.warning(f'position: {event.position().toPoint()} = {self.mapToScene(event.position().toPoint())}')
+    #     #sself.log.warning(f'globalPosition: {event.globalPosition().toPoint()} = {self.mapToScene(event.globalPosition().toPoint())}')
+    #
+    #     # @todo
+    #     # This this.sceneRect() is the size of the total view...
+    #     # When scaling on the cursor position, when reaching the edge of the sceneRect... the zoom will loose the cursor position.
+    #     # When this happends we need to ... somehow enlarge the screenRect.
+    #     # We probably need a max zoom for that...
+    #     # now the question is, are we going to
+    #     #   -support endless zoom?
+    #     # Or are we just going to limit it at some extrodenairy large size.
+    #
+    #     # Blalalllajsdhkjas kasjhkjsahdv = sdfdsfdsfds
+    #
+    #
+    #     # Set Anchors (zoom_center)
+    #     self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+    #     self.setResizeAnchor(QGraphicsView.NoAnchor)
+    #
+    #     # Save the scene pos
+    #     oldPos = self.mapToScene(zoom_center.toPoint())
+    #
+    #     # Zoom
+    #     # Zoom Factor
+    #
+    #     zoomInFactor = 1.25
+    #     zoomOutFactor = -1 / zoomInFactor
+    #
+    #     zoom_in_factor = 2
+    #     zoom_out_factor = -2
+    #
+    #     if self.map_zoom < zoom:
+    #         zoomFactor = zoom_in_factor
+    #     elif self.map_zoom > zoom:
+    #         zoomFactor = zoom_out_factor
+    #     else:
+    #         return
+    #
+    #
+    #
+    #     self.scale(zoomFactor, zoomFactor)
+    #
+    #     #self.log.warning(f'NEW position: {event.position().toPoint()} = {self.mapToScene(event.position().toPoint())}')
+    #     #self.log.warning(f'NEW globalPosition: {event.globalPosition().toPoint()} = {self.mapToScene(event.globalPosition().toPoint())}')
+    #     # Get the new position
+    #     #newPos = self.mapToScene(zoom_center.toPoint())
+    #
+    #     # Move scene to old position
+    #     #delta = newPos - oldPos
+    #     # self.translate(delta.x(), delta.y())
+    #
+    #     self.map_zoom = zoom
+    #
+    # def c_map_rotate(self, degrees: int, cursor_location: QPoint):
+    #     self.log.debug(f'Signal map_rotate({degrees}, {cursor_location})')
+    #
+    # def c_map_move(self, move_to: QPoint):
+    #     self.log.debug(f'Signal map_move({move_to})')
+    #
+    # def c_show_stations(self, show: bool):
+    #     self.log.debug(f'Signal show_stations({show})')
+    #
+    # def c_show_station_names(self, show: bool):
+    #     self.log.debug(f'Signal show_station_namess({show})')
+    #
+    # def c_show_depths(self, show: bool):
+    #     self.log.debug(f'Signal show_depths({show})')
+    #
+    # def c_toggle_satellite(self):
+    #     self.log.debug(f'Signal c_toggle_satellite')
+    #     self.map_scene.reload()
+    #
+    #
+    #
+    # def wheelEvent(self, event: QWheelEvent) -> None:
+    #     # numPixels = event.pixelDelta()
+    #     zoom = self.map_zoom + (event.angleDelta().y() / 120)  # increase zoom-lvl with 1 per "scoll-teeth"
+    #     self.s_map_zoom.emit(zoom, event.globalPosition())
     #     event.accept()
     #
-    # def wheelEvent(self, event) -> None:
-    #     event.accept()
-    #     ##event.
-    #     #QWheelEvent
-    #     print('wheel event')
+    # def resizeEvent(self, event: QResizeEvent) -> None:
+    #     pass
+    #
+    #
 
-    # # Drag & drop event
-    # def dragEnterEvent(self, event) -> None:
-    #     event.accept()
-    #
-    # def dragLeaveEvent(self, event) -> None:
-    #    event.accept()
-    #
-    # def dragMoveEvent(self, event) -> None:
-    #     event.accept()
-    #
-    # def dropEvent(self, event):
-    #     super().dropEvent(event)
-    #     mime = event.mimeData()
-    #     survey = self.import_survey.get(int(mime.property('survey_id')))
-    #     line = self.import_line.get(int(mime.property('line_id'))
-    #
-    #
-    #     event.accept()
-    #     return
 
 
 class DebugConsole(QWidget):

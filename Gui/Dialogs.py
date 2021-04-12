@@ -2,7 +2,7 @@ import pathlib
 
 import PySide6
 from PySide6 import QtCore
-from PySide6.QtCore import QDateTime, QSysInfo, QSettings
+from PySide6.QtCore import QDateTime, QSysInfo, QSettings, QThread
 from PySide6.QtGui import Qt, QPixmap
 from PySide6.QtSql import QSqlTableModel
 from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, QMessageBox, QApplication, QFormLayout, \
@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QErrorMessage, QDialog, QTableView, QHBoxLayout, Q
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, MNEMO_DEVICE_DESCRIPTION, DEBUG, \
     MNEMO_DEVICE_NAME, MNEMO_BAUDRATE, MNEMO_TIMEOUT, MNEMO_CYCLE_COUNT, SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT, \
-    SQL_DB_LOCATION, GOOGLE_MAPS_SCALING, APPLICATION_CACHE_DIR, APPLICATION_CACHE_MAX_SIZE, APPLICATION_TMP_DIR, \
+    SQL_DB_LOCATION, GOOGLE_MAPS_SCALING, APPLICATION_CACHE_DIR, APPLICATION_CACHE_MAX_SIZE, APPLICATION_DATA_DIR, \
     APPLICATION_DEFAULT_PROJECT_NAME, APPLICATION_DEFAULT_FILE_NAME, APPLICATION_VERSION, APPLICATION_FILE_EXTENSION, \
     APPLICATION_STARTUP_DIALOG_IMAGE, DOCS_SEARCH_PATHS
 from Gui.Delegates.FormElements import DropDown
@@ -224,6 +224,11 @@ class PreferencesDialog(QDialog, FormMixin):
                     "form_field": "label",
                     "value": f'{QSysInfo.currentCpuArchitecture()}/{QSysInfo.buildCpuArchitecture()}'
                 },
+                "threads": {
+                    "label": "CPU Thread count",
+                    "form_field": "label",
+                    "value": f'{QThread.idealThreadCount()}'
+                },
                 "comp_arch": {
                     "label": "Compiled architecture",
                     "form_field": "label",
@@ -267,11 +272,11 @@ class PreferencesDialog(QDialog, FormMixin):
                     "info": f"{APPLICATION_NAME} uses this directory to store temporary files.",
                     "form_field": "text_line",
                     "settings_key": "application_tmp_dir",
-                    "default_value": APPLICATION_TMP_DIR,
+                    "default_value": APPLICATION_DATA_DIR,
                 },
                 "settings_raw": {
                     "label": "QSettings raw data",
-                    "form_field": "label_ml",
+                    "form_field": "textarea",
                     "value_from_function": "_settings_as_string"
                 },
                 "settings_reset": {
@@ -291,7 +296,7 @@ class PreferencesDialog(QDialog, FormMixin):
         for key in data:
             r.append(f'\t{key} = {data[key]}')
 
-        return '\n'.join(r)
+        return '<br />'.join(r)
 
     def _reset_settings(self, event):
         response = QMessageBox.question(self, 'Reset ALL settings?', 'You can not undo this, continue?',
@@ -304,7 +309,7 @@ class PreferencesDialog(QDialog, FormMixin):
         for key in all_keys:
             s.remove(key)
 
-        self.generate_form(self.current_form)
+        self.generate_form(self.current_form, self.form_layout)
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -385,6 +390,7 @@ class PreferencesDialog(QDialog, FormMixin):
 
         super().close()
 
+
 class DocumentationDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -398,7 +404,6 @@ class DocumentationDialog(QDialog):
         layout.addWidget(browser)
         self.setLayout(layout)
         self.show()
-
 
 
 class NewProjectDialog(QDialog, FormMixin):
@@ -486,7 +491,7 @@ class NewProjectDialog(QDialog, FormMixin):
     def create_project(self):
         file_name = self.get_field_value(self.FORM['fields']['file_name'])
         project_name = self.get_field_value(self.FORM['fields']['project_name'])
-        if self.get_field_value(self.FORM['fields']['use_geo']) is True:
+        if bool(self.get_field_value(self.FORM['fields']['use_geo'])) is True:
             latitude = self.get_field_value(self.FORM['fields']['lat_lng']['fields']['latitude'])
             longitude = self.get_field_value(self.FORM['fields']['lat_lng']['fields']['longitude'])
         else:

@@ -131,4 +131,3 @@ class ThreadWithProgressBar:
         # I need to get the treeview somehow.
         model = self.main_window.tree_view.model()
         model.import_item().prepend_child(survey_id)
-

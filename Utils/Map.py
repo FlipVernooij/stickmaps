@@ -2,255 +2,307 @@ import datetime
 import logging
 import pathlib
 import shutil
+from time import sleep
 
 import pyIGRF
 import requests
-from PySide6.QtCore import QPointF, Qt, QPoint
+from PySide6.QtCore import QPointF, Qt, QPoint, QRunnable, QThreadPool, Signal, QObject
 import math
 
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QGraphicsPixmapItem
+from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsItemGroup
 
 from Config.Constants import GOOGLE_STATIC_MAPS_URL, GOOGLE_STATIC_MAPS_API_KEY, GOOGLE_MAPS_SCALING, \
-    APPLICATION_CACHE_DIR
+    APPLICATION_CACHE_DIR, DEFAULT_LATITUDE, DEFAULT_LONGITUDE
+from Models.TableModels import ProjectSettings, SqlManager
 from Utils.Settings import Preferences
 
 
-class GeoMixin:
-    WORLD_TILE_SIZE = 256
-
-    def xy_2_latlng(self, xy: QPointF, zoom: int) -> QPointF:
-        """
-            convert Google-style Mercator tile coordinate to (lat, lng)
-            @see https://github.com/hrldcpr/mercator.py
-        """
-        x = xy.x()
-        y = xy.y()
-
-        lat_rad = math.pi - 2 * math.pi * y / math.pow(2, zoom)
-        lat_rad = 2 * math.atan(math.exp(lat_rad)) - math.pi / 2
-        lat = math.degrees(lat_rad)
-
-        lng = -180.0 + 360.0 * x / math.pow(2, zoom)
-
-        ret = QPointF()
-        ret.setX(lat)
-        ret.setY(lng)
-        return ret
-
-    def latlng_2_xy(self, latlng: QPointF, zoom: int):
-        """
-            convert lat/lng to Google-style Mercator tile coordinate (x, y)
-            @see https://github.com/hrldcpr/mercator.py
-        """
-        lat = latlng.x()
-        lng = latlng.y()
-
-        lat_rad = math.radians(lat)
-        lat_rad = math.log(math.tan((lat_rad + math.pi / 2) / 2))
-
-        x = math.pow(2, zoom) * (lng + 180.0) / 360.0
-        y = math.pow(2, zoom) * (math.pi - lat_rad) / (2 * math.pi)
-        ret = QPointF()
-        ret.setX(x)
-        ret.setY(y)
-        return ret
-
-    def xy_value_for_pixels(self, pixels: int):
-        return pixels / self.WORLD_TILE_SIZE
-
-    """ UNTESTED, CHECK THIS!!"""
-    def azimuth_to_latlng(self, location_start: QPointF, length: float, azimuth: float) -> QPointF:
-        """
-        This is the code used by google map (SphericalUtil.java)
-
-        https://stackoverflow.com/questions/8586635/convert-meters-to-latitude-longitude-from-any-point
 
 
-        Whenever the API needs to translate a location in the world to a location on a map, it first translates latitude and longitude values into a world coordinate.
-        The API uses the Mercator projection to perform this translation.
+class TileWorkerObject(QRunnable, FileFetchMixin):
 
-        Latitude and longitude values, which reference a point on the world uniquely. (Google uses the World Geodetic System WGS84 standard.)
-
-        :param location_start:
-        :param length:
-        :param azimuth:
-        :return:
-        """
-        distance = length / self.EARTH_RADIUS
-        azimuth = self._ajust_earth_magnetic_field(location_start, azimuth)
-        heading = math.radians(azimuth)
-        from_latitude = math.radians(location_start.getX())
-        from_longitude = math.radians(location_start.getY())
-        cos_distance = math.cos(distance)
-        sin_distance = math.sin(distance)
-        sin_from_latitude = math.sin(from_latitude)
-        cos_from_latitude = math.cos(from_latitude)
-        sin_latitude = cos_distance * sin_from_latitude + sin_distance * cos_from_latitude * math.cos(heading)
-        distance_longitude = math.atan2(sin_distance * cos_from_latitude * math.sin(heading), cos_distance - sin_from_latitude * sin_latitude)
-        return QPointF(xpos=math.asin(sin_latitude), ypos=from_longitude + distance_longitude)
-
-    def _ajust_earth_magnetic_field(self, lat_lng: QPointF, azimuth: float, depth: float = 0,
-                                    year: int = 2020) -> float:
-        """
-            @todo This sort of breaks quick and dirty coordinate calculations
-                    I should inspect this a bit deeper, see what the actual variations are... it would be great to forget about this in loop-closures ect.
-
-            I do think that manual compasses already have the degree offset, so we should only do this for a specified set of devices.
-            We should probably make this a setting in preferences or something...?
-
-            :param lat_long:
-            :param azimuth:
-            :param depth:
-            :param year:
-            :return:
-        """
-        result = pyIGRF.igrf_value(lat_lng.getX(), lat_lng.getY(), alt=depth, year=float(year))
-        # @todo Do something with the result and the azimuth...
-        # https://pypi.org/project/pyIGRF/
-        self.log.info('We are NOT calculating magnetic variation of the earth. ')
-        return azimuth
+    def __init__(self, tile):
+        super().__init__()
+        self.log = logging.getLogger(__name__)
+        self.tile = tile
+        # self.graphic_object = QGraphicsPixmapItem()
+        # self.graphic_object.setY(tile.y_pos())
+        # self.graphic_object.setX(tile.x_pos())
+        #
+        # pixmap = QPixmap(tile.TILE_WIDTH, tile.TILE_HEIGHT)
+        # pixmap.fill(Qt.red)
+        # self.graphic_object.setPixmap(pixmap)
+        #
+        # self.s_set_pixmap.connect(self.set_pixmap)
 
 
-class FileFetchMixin:
+    def run(self):
+        file = self._request_image(self.tile.lat_lng, self.tile.ZOOM)
 
-    def _request_image(self, latlng: QPointF, zoom: int, map_type: str = 'satellite', provider: str = 'google'):
-        lat = latlng.x()
-        lng = latlng.y()
-
-        url = self._get_url(provider, lat, lng, zoom, map_type)
-        file_name = self._get_cache_filename(lat, lng, zoom, map_type)
-        file = pathlib.Path(file_name)
-        self.log.debug(f'requesting maps image: url: {url} cache_file: {file_name}')
-        if not file.exists():
-            self.log.debug(f'Cache file does not exist, requesting')
-            r = requests.get(url, stream=True)
-            if r.status_code == 200:
-                with open(file_name, 'wb') as f:
-                    shutil.copyfileobj(r.raw, f)
-            else:
-                self.log.error(f"Failed fetching googlemaps image for: {url}")
-        else:
-            self.log.debug(f'Cache file found')
-
-        return file_name
-
-    def _get_url(self, provider: str, lat: float, lng: float, zoom: int, map_type: str = 'satellite'):
-        if provider == 'google':
-            return f'{GOOGLE_STATIC_MAPS_URL}' \
-                   f'?key={GOOGLE_STATIC_MAPS_API_KEY}' \
-                   f'&center={lat},{lng}' \
-                   f'&scaling={Preferences.get("google_maps_scaling", GOOGLE_MAPS_SCALING, int)}' \
-                   f'&zoom={zoom}' \
-                   f'&maptype={map_type}' \
-                   f'&size=640x640' \
-                   f'&format=jpg'
-        else:
-            self.log.error('Provider {provider} not found, try again')
-
-    def _get_cache_filename(self, lat: float, lng: float, zoom: int, map_type: str = 'satellite'):
-        return f'{Preferences.get("application_cache_dir", APPLICATION_CACHE_DIR, str)}/gsm_{map_type}{lat},{lng}_{zoom}.jpg'
+        pixmap = QPixmap.fromImage(file).scaled(self.tile.TILE_WIDTH, self.tile.TILE_HEIGHT, Qt.KeepAspectRatioByExpanding)
+        self.tile.s_pixmap_ready.emit(pixmap)
 
 
+class TileObject(QObject):
+
+    TILE_WIDTH = 640
+    TILE_HEIGHT = 640
+    ZOOM = 20
+
+    _pixmap_placeholder = None
+
+    s_pixmap_ready = Signal(QPixmap)
+
+    @property
+    def pixmap_placeholder(self):
+        if self._pixmap_placeholder is None:
+            self._pixmap_placeholder = QPixmap(self.TILE_WIDTH, self.TILE_HEIGHT)
+            self._pixmap_placeholder.fill(Qt.gray)
+        return self._pixmap_placeholder
+
+    def __init__(self, lat_lng: QPointF, tile_xy: QPoint):
+        super().__init__()
+        self.tile_xy = tile_xy
+        self.lat_lng = lat_lng
+
+        self.graphics_item = QGraphicsPixmapItem()
+
+    def __repr__(self):
+        return f'x:{self.tile_xy.x()} / y:{self.tile_xy.y()}  - {self.lat()} / {self.lng()}'
+
+    def x(self):
+        return self.tile_xy.x()
+
+    def y(self):
+        return self.tile_xy.y()
+
+    def lat(self):
+        return self.lat_lng.x()
+
+    def lng(self):
+        return self.lat_lng.y()
+
+    def x_pos(self):
+        return self.x() * self.TILE_WIDTH
+
+    def y_pos(self):
+        return self.y() * self.TILE_HEIGHT
+
+    def is_within_grid(self, grid_width: int, grid_height) -> bool:
+        if self.x() > grid_width or self.x() < 1:
+            return False
+        if self.y() > grid_height or self.y() < 1:
+            return False
+        return True
+
+    def thread_object(self):
+        self.graphics_item.setX(self.x_pos())
+        self.graphics_item.setY(self.y_pos())
+        self.graphics_item.setPixmap(self.pixmap_placeholder)
+        obj = TileWorkerObject(self)
+        self.s_pixmap_ready.connect(self.update_pixmap)
+        return obj
+
+    def update_pixmap(self, pixmap):
+        self.graphics_item.setPixmap(pixmap)
 
 class OverlayGoogleMaps(GeoMixin, FileFetchMixin):
 
-    TILE_NORTH = 360
-    TILE_NORTH_EAST = 45
-    TILE_EAST = 90
-    TILE_SOUTH_EAST = 135
-    TILE_SOUTH = 180
-    TILE_SOUTH_WEST = 225
-    TILE_WEST = 270
-    TILE_NORTH_WEST = 315
+    HEADING_NORTH = 360
+    HEADING_NORTH_EAST = 45
+    HEADING_EAST = 90
+    HEADING_SOUTH_EAST = 135
+    HEADING_SOUTH = 180
+    HEADING_SOUTH_WEST = 225
+    HEADING_WEST = 270
+    HEADING_NORTH_WEST = 315
 
 
-    def __init__(self, parent):
+    def __init__(self, parent, map_group: QGraphicsItemGroup):
         self.parent = parent
+        self.thead_pool = QThreadPool()
         self.log = logging.getLogger(__name__)
-
+        self.sql_manager = SqlManager()
         self.zoom = 20
-        self.tile_height = 640
-        self.tile_width = 640
+        self._tile_height = 640
+        self._tile_width = 640
 
-    def get_tile(self,  lat_lng: QPointF, offset_item: QPoint = None) -> QGraphicsPixmapItem:
+        self.project = self.sql_manager.factor(ProjectSettings).get()
+        self.viewport_size = self.parent.parent().viewport().size()
+        self.map_group = map_group
+
+        self.map_is_shown = False
+
+    @property
+    def tile_height(self):
         """
-            @todo I am manually downscalling the images from 640 to 320 for some reason.
-                    This might have todo with the fact that I DO NOT have a highress screen.. but am requesting a 2x image.
-        :param lat_lng:
-        :param offset_item:
-        :return:
+            I am dividing the tile size as I am requesting a 2X, yet displaying it as such shows a pretty low res image.
+            @todo, figure this out and remove these properties.. and use the actual properties again.
         """
-        image = self._request_image(lat_lng, self.zoom)
-        pixmap = QPixmap.fromImage(image).scaled(self.tile_width / 2, self.tile_height / 2, Qt.KeepAspectRatioByExpanding)
-        item = QGraphicsPixmapItem(pixmap)
+        return self._tile_height
 
-        if offset_item is not None:
-            item.setY(offset_item.y() / 2)
-            item.setX(offset_item.x() / 2)
+    @property
+    def tile_width(self):
+        return self._tile_width
 
-        return item
+    def reload(self):
+        self.project = self.sql_manager.factor(ProjectSettings).get()
+        self.viewport_size = self.parent.parent().viewport().size()
+        children = self.map_group.childItems()
+        if len(children) > 0:
+            for item in self.map_group.childItems():
+                self.parent.removeItem(item)
+        if self.map_is_shown is False:
+            self.render()
 
-    def get_surrounding_tile_heading(self, lat_lng: QPointF, heading: int):
+        self.map_is_shown = not self.map_is_shown
+
+    def render(self):
+        self.tiles = self.get_tiles_for_grid(self.viewport_size.width(), self.viewport_size.height())
+
+        for tile in self.tiles:
+            self.map_group.addToGroup(tile.graphics_item)
+            worker = tile.thread_object()
+            self.thead_pool.start(worker)
+
+    def get_tiles_for_grid(self, screen_width: int, screen_height: int) -> list:
         """
-        This should return the lat/lng of the next tile to the "heading" (North)
-        So it calculates the lat/lng of x+0 pixels and y+640 pixels.
+            This method returns a list with all the lat/lng & x/y info for every tile that needs to be rendered.
+            It will render 1 extra row on each side as a scroll-buffer as an attempt to allow fluid scrolling/zooming.
+
+            As a extra gadget the order of the elements in the list should show a cool pattern when loading the images.
+
+        :param screen_width: int
+        :param screen_height: int
+        :return: list
         """
-        xy = self.latlng_2_xy(lat_lng, self.zoom)
-        offset = QPoint(0, 0)
-        map_height = self.xy_value_for_pixels(self.tile_height)
-        map_width = self.xy_value_for_pixels(self.tile_width)
-
-        if heading in (self.TILE_NORTH, self.TILE_NORTH_EAST, self.TILE_NORTH_WEST):
-            xy.setY(xy.y()+(map_height * -1))
-            offset.setY(self.tile_height * -1)
-        if heading in (self.TILE_SOUTH, self.TILE_SOUTH_EAST, self.TILE_SOUTH_WEST):
-            xy.setY(xy.y() + map_height)
-            offset.setY(self.tile_height)
-        if heading in (self.TILE_EAST, self.TILE_NORTH_EAST, self.TILE_SOUTH_EAST):
-            xy.setX(xy.x() + (map_width * -1))
-            offset.setX(self.tile_width * -1)
-        if heading in (self.TILE_WEST, self.TILE_NORTH_WEST, self.TILE_SOUTH_WEST):
-            xy.setX(xy.x() + map_width)
-            offset.setX(self.tile_width)
-
-        latlng = self.xy_2_latlng(xy, self.zoom)
-
-        return self.get_tile(latlng, offset)
+        tile_count_width = math.ceil(screen_width / self.tile_width) + 2
+        tile_count_height = math.ceil(screen_height / self.tile_height) + 2
 
 
+        if tile_count_width % 2 == 0:
+            tile_count_width += 1
+        if tile_count_height % 2 == 0:
+            tile_count_height += 1
 
+        self.log.info(f'Grid-size set to w/h {tile_count_width}/{tile_count_height}')
 
+        center_tile = TileObject(
+            lat_lng=QPointF(DEFAULT_LATITUDE, DEFAULT_LONGITUDE),
+            tile_xy=QPoint(math.ceil(tile_count_width/ 2), math.ceil(tile_count_height / 2))
+        )
+        render_tiles = [center_tile]
+        c_ne = center_tile
+        c_se = center_tile
+        c_sw = center_tile
+        c_nw = center_tile
+        while True:
+            end_corner_loop = 0
+            c_ne = self.next_tile(c_ne, self.HEADING_NORTH_EAST)
+            c_se = self.next_tile(c_se, self.HEADING_SOUTH_EAST)
+            c_sw = self.next_tile(c_sw, self.HEADING_SOUTH_WEST)
+            c_nw = self.next_tile(c_nw, self.HEADING_NORTH_WEST)
 
+            if c_ne.is_within_grid(tile_count_width, tile_count_height) is False:
+                # check if we need to change corner position (widscreen)
+                if c_ne.x() <= tile_count_width:
+                    c_ne = self.next_tile(c_ne, self.HEADING_SOUTH)
+                    render_tiles.append(c_ne)
+                else:
+                    end_corner_loop += 1
+            else:
+                render_tiles.append(c_ne)
 
+            if c_se.is_within_grid(tile_count_width, tile_count_height) is False:
+                # check if we need to change corner position  (widscreen)
+                if c_se.y() <= tile_count_height:
+                    c_se = self.next_tile(c_se, self.HEADING_WEST)
+                    render_tiles.append(c_se)
+                else:
+                    end_corner_loop += 1
+            else:
+                render_tiles.append(c_se)
+
+            if c_sw.is_within_grid(tile_count_width, tile_count_height) is False:
+                # check if we need to change corner position (widscreen)
+                if c_sw.x() >= 1:
+                    c_sw = self.next_tile(c_sw, self.HEADING_NORTH)
+                    render_tiles.append(c_sw)
+                else:
+                    end_corner_loop += 1
+            else:
+                render_tiles.append(c_sw)
+
+            if c_nw.is_within_grid(tile_count_width, tile_count_height) is False:
+                if c_nw.y() >= 1:
+                    c_nw = self.next_tile(c_nw, self.HEADING_EAST)
+                    render_tiles.append(c_nw)
+                else:
+                    end_corner_loop += 1
+            else:
+                render_tiles.append(c_nw)
+
+            r_s = c_ne
+            r_w = c_se
+            r_n = c_sw
+            r_e = c_nw
+
+            while True:
+                end_row_loop = 0
+                r_s = self.next_tile(r_s, self.HEADING_SOUTH)
+                if r_s.is_within_grid(tile_count_width, tile_count_height) is False:
+                    end_row_loop += 1
+                else:
+                    render_tiles.append(r_s)
+
+                r_w = self.next_tile(r_w, self.HEADING_WEST)
+                if r_w.is_within_grid(tile_count_width, tile_count_height) is False:
+                    end_row_loop += 1
+                else:
+                    render_tiles.append(r_w)
+
+                r_n = self.next_tile(r_n, self.HEADING_NORTH)
+                if r_n.is_within_grid(tile_count_width, tile_count_height) is False:
+                    end_row_loop += 1
+                else:
+                    render_tiles.append(r_n)
+
+                r_e = self.next_tile(r_e, self.HEADING_EAST)
+                if r_e.is_within_grid(tile_count_width, tile_count_height) is False:
+                    end_row_loop += 1
+                else:
+                    render_tiles.append(r_e)
+
+                if end_row_loop == 4:
+                    break
+
+            if end_corner_loop == 4:
+                break
+                
+        return render_tiles
     
+    def next_tile(self, last_corner: TileObject, heading: int):
+        latlng = self.latlng_2_xy(last_corner.lat_lng, self.zoom)
+        offset = QPoint(0, 0)
 
-"""
-pyIGRF  -> 
-            We can use this package to calculate the magnetic difference arround the earth.
-            Ariane has some kint of a manual method for this in com.arianesline.IGRF
-            Python has a package for it which is awesome.
-            
-            
-"""
-class StationItem:
-    """
-        This class generates the location of the next station.
-    """
-    EARTH_RADIUS = 6371009.0  # meters
+        map_height = self.xy_value_for_pixels(self._tile_height)
+        map_width = self.xy_value_for_pixels(self._tile_width)
 
-    def __init__(self, current_location: QPointF, import_station_row: dict, year: int):
-        self.current_location = current_location
-        self.next_station = import_station_row
-        #self.geo_tool = GeoTools()
-        self.lat_lng = self.geo_tools.heading_to_lat_long(current_location, import_station_row['length_out'], year)
+        if heading in (self.HEADING_NORTH, self.HEADING_NORTH_EAST, self.HEADING_NORTH_WEST):
+            latlng.setY(latlng.y() + (map_height * -1))
+            offset.setY(1 * -1)
+        if heading in (self.HEADING_SOUTH, self.HEADING_SOUTH_EAST, self.HEADING_SOUTH_WEST):
+            latlng.setY(latlng.y() + map_height)
+            offset.setY(1)
+        if heading in (self.HEADING_EAST, self.HEADING_NORTH_EAST, self.HEADING_SOUTH_EAST):
+            latlng.setX(latlng.x() + map_width)
+            offset.setX(1)
+        if heading in (self.HEADING_WEST, self.HEADING_NORTH_WEST, self.HEADING_SOUTH_WEST):
+            latlng.setX(latlng.x() + (map_width * -1))
+            offset.setX(1 * -1)
 
-    def get_longitude(self) -> float:
-        return 0
+        lat_lng = self.xy_2_latlng(latlng, self.zoom)
+        tile_xy = last_corner.tile_xy + offset
 
-    def get_latitude(self) -> float:
-        return 0
-
-    def get_point(self):
-        return self.lat_lng
-
+        return TileObject(lat_lng=lat_lng, tile_xy=tile_xy)

@@ -93,7 +93,7 @@ class FormMixin:
             if "value_from_function" in element:
                 element['value'] = getattr(self, element["value_from_function"])(element)
             el = QLabel(element['value'])
-        elif f == 'label_ml':
+        elif f == 'textarea':
             if "value_from_function" in element:
                 element['value'] = getattr(self, element["value_from_function"])(element)
             el = QTextEdit(element['value'])

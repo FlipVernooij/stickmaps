@@ -48,6 +48,11 @@ class SaveFile():
         self.parent.map_view.setDisabled(True)
         self.parent.menuBar().setDisabled(True)
 
+        settings = QSettings()
+        settings.setValue('SaveFile/current_file_name', self.file_path)
+        settings.setValue('SaveFile/last_path', os.path.dirname(self.file_path))
+        settings.setValue('SaveFile/is_changed', False)
+
         self._load_to_db(data['database'])
         project = self.sql_manager.factor(ProjectSettings)
         data = project.get()

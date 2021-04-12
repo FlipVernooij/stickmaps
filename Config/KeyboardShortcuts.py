@@ -10,3 +10,5 @@ KEY_PREFERENCES = QKeySequence("Ctrl+,")
 KEY_IMPORT_MNEMO_CONNECT = QKeySequence("Ctrl+Shift+M")
 KEY_IMPORT_MNEMO_DUMP_FILE = QKeySequence("Ctrl+Alt+M")
 KEY_IMPORT_MNEMO_DUMP = QKeySequence("Ctrl+Meta+M")
+
+KEY_TOGGLE_SATELLITE = QKeySequence("Ctrl+M")

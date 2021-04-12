@@ -831,7 +831,7 @@ class Explorer(QueryMixin, QSqlTableModel):
     def create_database_tables(self):
         query = f"""
                    CREATE TABLE IF NOT EXISTS {SQL_TABLE_EXPLORERS} (
-                       b_explorer_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       explorer_id INTEGER PRIMARY KEY AUTOINCREMENT,
                        survey_id INTEGER, 
                        contact_id INTEGER,
                        name TEXT
@@ -864,7 +864,7 @@ class Surveyor(QueryMixin, QSqlRelationalTableModel):
     def create_database_tables(self):
         query = f"""
                    CREATE TABLE IF NOT EXISTS {SQL_TABLE_SURVEYORS} (
-                       b_surveyor_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       surveyor_id INTEGER PRIMARY KEY AUTOINCREMENT,
                        survey_id INTEGER, 
                        contact_id INTEGER,
                        name TEXT

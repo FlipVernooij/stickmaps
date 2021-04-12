@@ -1,15 +1,17 @@
+import logging
 import os
 import pathlib
 
 from PySide6.QtCore import QSettings
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QIcon
 
-from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialog
+from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialog, QToolBar
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, APPLICATION_FILE_EXTENSION, \
     MAIN_WINDOW_TITLE, MNEMO_BAUDRATE, MNEMO_TIMEOUT
+from Config.Icons import ICON_TOGGLE_SATELLITE
 from Config.KeyboardShortcuts import KEY_IMPORT_MNEMO_CONNECT, KEY_IMPORT_MNEMO_DUMP_FILE, KEY_QUIT_APPLICATION, \
-    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW, KEY_IMPORT_MNEMO_DUMP, KEY_PREFERENCES
+    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW, KEY_IMPORT_MNEMO_DUMP, KEY_PREFERENCES, KEY_TOGGLE_SATELLITE
 from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditLinesDialog, EditLineDialog, EditStationsDialog, \
     EditStationDialog, PreferencesDialog, NewProjectDialog, OpenProjectDialog, DocumentationDialog
 from Gui.Dialogs import EditSurveysDialog
@@ -51,35 +53,6 @@ class GlobalActions(ThreadWithProgressBar):
 
         dialog = OpenProjectDialog(self.parent)
         dialog.show()
-        return
-        settings = QSettings()
-        path = settings.value('SaveFile/last_path', str(pathlib.Path.home()))
-        try:
-            file_regex = f'(*.{APPLICATION_FILE_EXTENSION})'
-            file_ident = f'{APPLICATION_NAME} {file_regex}'
-            name = QFileDialog.getOpenFileName(
-                parent=self.parent,
-                caption="Open file",
-                dir=path,
-                filter=file_ident,
-                selectedFilter=file_ident,
-                options=QFileDialog.Options() | QFileDialog.DontUseNativeDialog
-            )
-
-            if not name[0]:
-                return
-
-            name = name[0]
-            save = SaveFile(name)
-            save.load_from_file()
-            self.parent.tree_view.model().reload_model()
-            self._update_window_title(name)
-
-            settings.setValue('SaveFile/is_changed', False)
-            settings.setValue('SaveFile/last_path', os.path.dirname(name))
-            settings.setValue('SaveFile/current_file_name', name)
-        except Exception as err_mesg:
-            ErrorDialog.show_error_key(self.parent, str(err_mesg))
 
     def save(self):
         action = QAction('Save', self.parent)
@@ -91,7 +64,7 @@ class GlobalActions(ThreadWithProgressBar):
         settings = QSettings()
         file_name = settings.value('SaveFile/current_file_name', None)
         if file_name is not None:
-            save = SaveFile(file_name)
+            save = SaveFile(self.parent, file_name)
             save.save_to_file()
             self.current_file_name = file_name
             self.parent.statusBar().showMessage('File saved.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
@@ -122,7 +95,7 @@ class GlobalActions(ThreadWithProgressBar):
             file_name = dialog.selectedFiles()[0]
             if file_name[-4:] != f'.{APPLICATION_FILE_EXTENSION}':
                 file_name = f'{file_name}.{APPLICATION_FILE_EXTENSION}'
-            save = SaveFile(file_name)
+            save = SaveFile(self.parent, file_name)
             save.save_to_file()
             self.current_file_name = file_name
             self.parent.statusBar().showMessage('File saved.', MAIN_WINDOW_STATUSBAR_TIMEOUT)
@@ -438,3 +411,18 @@ class TreeActions:
 
         self.remove_alert.close()
 
+class MapToolbarActions:
+
+    def __init__(self, toolbar: QToolBar, map_view):
+        self.map_view = map_view
+        self.toolbar = toolbar
+
+    def toggle_satellite(self):
+        action = QAction(QIcon(ICON_TOGGLE_SATELLITE), 'toggle satellite', self.toolbar)
+        action.setShortcut(KEY_TOGGLE_SATELLITE)
+        action.triggered.connect(lambda: self.toggle_satellite_callback())
+        return action
+
+    def toggle_satellite_callback(self):
+        logging.getLogger().warning('sending s_toggle_satellite signal')
+        self.map_view.s_toggle_satellite.emit(None)

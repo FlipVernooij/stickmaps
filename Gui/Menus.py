@@ -1,7 +1,7 @@
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QToolBar
 
-from Gui.Actions import GlobalActions, TreeActions
+from Gui.Actions import GlobalActions, TreeActions, MapToolbarActions
 
 
 class MainMenu:
@@ -56,10 +56,14 @@ class MainMenu:
         action.setSeparator(True)
         return action
 
-class MainToolbar(QToolBar):
+class MapsToolBar(QToolBar):
 
-    def __init__(self, parent):
+    def __init__(self, parent, map_view):
         super().__init__(parent)
+        self.map_view = map_view
+
+        actions = MapToolbarActions(self, self.map_view)
+        self.addAction(actions.toggle_satellite())
 
 
 class ContextMenuImports(QMenu):

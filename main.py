@@ -2,17 +2,13 @@ import logging
 import os
 import pathlib
 import sys
-from pprint import pprint
-from time import sleep
-
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QApplication, QStyleFactory, QSplashScreen
+from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication
 
 from Gui.Windows import MainApplicationWindow, Splash
 
 from Config.Constants import ORGANISATION_NAME, ORGANISATION_DOMAIN, APPLICATION_NAME, APPLICATION_CACHE_DIR, \
-    APPLICATION_CACHE_MAX_SIZE, APPLICATION_SPLASH_IMAGE
+    APPLICATION_CACHE_MAX_SIZE
 from Utils.Logging import LogStreamHandler
 from Utils.Settings import Preferences
 
@@ -25,11 +21,13 @@ if __name__ == '__main__':
     parent_app.processEvents()
 
     splash.showMessage("Loading settings.")
+    parent_app.processEvents()
     QCoreApplication.setOrganizationName(ORGANISATION_NAME)
     QCoreApplication.setOrganizationDomain(ORGANISATION_DOMAIN)
     QCoreApplication.setApplicationName(APPLICATION_NAME)
 
     splash.showMessage("Initializing log facilities.")
+    parent_app.processEvents()
     logger = logging.getLogger()
     handler = LogStreamHandler()
     logger.addHandler(handler)
@@ -38,6 +36,7 @@ if __name__ == '__main__':
         logger.setLevel(Preferences.get('debug_loglevel', logging.WARNING, int))
 
     splash.showMessage("Verifying cache dir.")
+    parent_app.processEvents()
     dir_path = Preferences.get("application_cache_dir", APPLICATION_CACHE_DIR, str)
     dir = pathlib.Path(dir_path)
     dir.mkdir(parents=True, exist_ok=True)
@@ -53,6 +52,7 @@ if __name__ == '__main__':
                 break
 
     splash.showMessage("Executing main application window.")
+    parent_app.processEvents()
     app = MainApplicationWindow()
 
     splash.finish(app)
