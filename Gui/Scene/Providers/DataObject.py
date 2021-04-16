@@ -17,11 +17,12 @@ class GridTileObject(QObject):
     def pixmap_placeholder(self):
         if self._pixmap_placeholder is None:
             self._pixmap_placeholder = QPixmap(self.tile_size.width(), self.tile_size.height())
-            self._pixmap_placeholder.fill(Qt.red)
+            self._pixmap_placeholder.fill(Qt.gray)
         return self._pixmap_placeholder
 
     def __init__(self, lat_lng: QPointF, tile_xy: QPoint, tile_size: QSize, zoom_level: float):
         super().__init__()
+        self.log = logging.getLogger(__name__)
         self.tile_xy = tile_xy
         self.lat_lng = lat_lng
         self.tile_size = tile_size
@@ -46,10 +47,12 @@ class GridTileObject(QObject):
         return self.lat_lng.y()
 
     def x_pos(self):
-        return self.x() * self.tile_size.width()
+        # -1 as we need the start of the tile, not the end
+        return (self.x()-1) * self.tile_size.width()
 
     def y_pos(self):
-        return self.y() * self.tile_size.height()
+        # -1 as we need the start of the tile, not the end
+        return (self.y()-1) * self.tile_size.height()
 
     def is_within_grid(self, grid_width: int, grid_height) -> bool:
         if self.x() > grid_width or self.x() < 1:
@@ -88,5 +91,5 @@ class GridTileWorkerObject(QRunnable):
     def run(self):
         file = Request.cached_image(self.url, self.cache_file)
         # @todo I can probably do without the scaling...?
-        pixmap = QPixmap.fromImage(file)  #.scaled(self.tile.tile_size.width(), self.tile.tile_size.height(), Qt.KeepAspectRatioByExpanding)
+        pixmap = QPixmap.fromImage(file).scaled(self.tile.tile_size.width(), self.tile.tile_size.height(), Qt.KeepAspectRatioByExpanding)
         self.tile.s_pixmap_ready.emit(pixmap, self.tile)

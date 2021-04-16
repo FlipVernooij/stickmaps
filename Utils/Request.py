@@ -22,6 +22,6 @@ def cached_image(url: str, cache_file: str,  cache_dir: str = None) -> str:
         else:
             logging.getLogger('cached_image').error(f"Failed fetching file for: {url}")
     else:
-        logging.getLogger('cached_image').debug(f'Cache hit for file {cache_file}')
-
+        # logging.getLogger('cached_image').debug(f'Cache hit for file {cache_file}')
+        pass
     return str(file)

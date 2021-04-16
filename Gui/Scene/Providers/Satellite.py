@@ -32,15 +32,20 @@ class GoogleMapsProvider(TileGridMixin):
         # when moving, map_center is different from window_center by QPointF.x() & QPointF.y()
         self.window_offset: QPointF = QPointF(0.0, 0.0)
 
-
     def render(self):
         self.log.debug("GoogleMapsProvider Render called")
-        if self.parent().map_center != self.map_center_latlng:
-            self.map_center_latlng = self.parent().map_center
+
+        # Map moved...
+        if self.parent().map_center_latlng != self.map_center_latlng:
+            self.map_center_latlng = self.parent().map_center_latlng
             self.map_zoom = self.parent().zoom_level
             self.window_size = self.parent().viewport_size
             # @todo screen move needs window offset to be re-set...
             self._render_full()
+
+        # Zoom
+        if self.parent().zoom_level != self.map_zoom:
+            self.log.info(f'GoogleMapsProvider, zoom detected {self.map_zoom} / {self.parent().zoom_level}')
 
     def _render_full(self):
         """
@@ -59,12 +64,25 @@ class GoogleMapsProvider(TileGridMixin):
             tile_height=self.TILE_HEIGHT,
             zoom_level=self.map_zoom
         )
-
-        for tile in tiles:
-            self.parent().addToGroup(tile.graphics_item)
+        group = self.parent()
+       # group.
+        for tile in tiles['tiles']:
+            group.addToGroup(tile.graphics_item)
+            children = group.childrenBoundingRect()
             worker = tile.thread_object()
             worker.set_url(self)
             self.thread_pool.start(worker)
+
+        self.parent().center_on_view()
+        children = group.childrenBoundingRect()
+        self.log.error(f'Bounding-rect = {children}')
+        #view = self.parent().parent().parent()
+        #view_port=view.viewport()
+        #view_rect=view.viewport().geometry()
+        #children.setPos(-200,-200)
+
+       # map_center = children.center(-200,-200)
+        foo = 1
 
     def _flush(self):
         children = self.parent().childItems()
@@ -83,4 +101,4 @@ class GoogleMapsProvider(TileGridMixin):
                f'&format={self.IMAGE_EXTENSION}'
 
     def get_tile_cache_name(self, lat_lng: QPointF, zoom_level: int):
-        return f'gsm_zoom-{math.floor(zoom_level)}_lat-{lat_lng.x()}_lng-{lat_lng.y()}'
+        return f'gsm_zoom-{math.floor(zoom_level)}_lat-{lat_lng.x()}_lng-{lat_lng.y()}.{self.IMAGE_EXTENSION}'

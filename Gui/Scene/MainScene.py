@@ -1,14 +1,28 @@
 # QGraphicsScene
 import logging
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QGraphicsScene
+from PySide6.QtCore import Qt, QRect, QSize, Slot
+from PySide6.QtWidgets import QGraphicsScene, QGraphicsItem
 
 from Gui.Scene.Overlays import SatelliteOverlay
 from Models.TableModels import SqlManager, ImportSurvey, ImportLine, ImportStation, ProjectSettings
 
+"""
+Alrighty:
+I have restructured the mapview to something more logic
 
+We will work with Overlays from now stating with the SatelliteOverlay on the bottom.
+I have created the "SatelliteOverlay" to start with and am getting close to something usable.
+
+ATM: I am fetching the tiles around the centerpoint of the map (lat/lng from projectSettings) correctly.
+    Yet I need to place them at the right coordinates in the view.
+    Then I need to work with the zooming.
+    
+    I made the zoom from 0 till 20.9 using the float as an extra zoom option.
+"""
 class MainScene(QGraphicsScene):
+
+    DEFAULT_SCENE_RECT = QRect(0,0, 6400, 6400)
 
     def __init__(self, parent):
         super().__init__(parent=parent)
@@ -17,8 +31,8 @@ class MainScene(QGraphicsScene):
         self._overlays = {}  # Contains all the overlays required for this Scene.
 
         """ Init Scene configuration """
-        #self.setSceneRect(self.parent().viewport().rect())
-        #self.set_background_color(Qt.white)
+        self.setSceneRect(self.DEFAULT_SCENE_RECT)
+        self.set_background_color(Qt.white)
 
         """ Init project properties """
         self.current_project = None  # list holding the current project data.
@@ -29,17 +43,9 @@ class MainScene(QGraphicsScene):
 
         """ Add default overlays """
         self.add_overlay(object=SatelliteOverlay(self), position=0)  # Used for rendering satelite images as a background.
-        #
-        # self.map_group = QGraphicsItemGroup()
-        # self.addItem(self.map_group)
-        # self.overlay = OverlayGoogleMaps(self, self.map_group)
-        #
-        # self.log.info('Using default lat/lng from constants file.')
-        # lat = Preferences.get('default_latitude', DEFAULT_LATITUDE, float)
-        # lng = Preferences.get('default_longitude', DEFAULT_LONGITUDE, float)
-        #
-        #
-        # lat_lng = QPointF(lat, lng)
+
+        self.parent().s_move_viewport.connect(self.c_move_viewport)
+
 
     def _init_database_objects(self):
         self._sql_manager = SqlManager()
@@ -52,16 +58,6 @@ class MainScene(QGraphicsScene):
     def reload(self):
         self.current_project = self.db_project.get()
         self.parent().s_project_changed.emit(self.current_project)
-
-        # if self.current_project['latitude'] != '' and self.current_project['longitude'] != '':
-        #     self.project_latlng_set = True
-        # else:
-        #     self.project_latlng_set = False
-        #     self.current_project['latitude'] = 0
-        #     self.current_project['longitude'] = 0
-        #
-        # self.set_scene_center(latitude=self.current_project['latitude'], longitude=self.current_project['longitude'])
-
         self.log.info(f'MainScene.reload() loaded project {self.current_project["project_name"]} (this should be a signal..)')
 
     def set_background_color(self, color):
@@ -93,6 +89,12 @@ class MainScene(QGraphicsScene):
 
     def remove_overlay(self, name: str):
         del self._overlays[name]
+
+    # signals
+    @Slot(QSize)
+    def c_move_viewport(self, offset):
+        pass
+
 
     # events
 

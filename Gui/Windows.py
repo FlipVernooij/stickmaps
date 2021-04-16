@@ -1,8 +1,9 @@
 import logging
 import os
 
-from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal, QPointF
-from PySide6.QtGui import QIcon, Qt, QCloseEvent, QDrag, QPixmap, QColor, QWheelEvent, QResizeEvent
+from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal, QPointF, Slot
+from PySide6.QtGui import QIcon, Qt, QCloseEvent, QDrag, QPixmap, QColor, QWheelEvent, QResizeEvent, QMouseEvent, \
+    QCursor
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
     QAbstractItemView, QVBoxLayout, QTextBrowser, QPushButton, QComboBox, QHBoxLayout, QGraphicsView, QSplashScreen
 
@@ -226,15 +227,15 @@ class SurveyOverview(QTreeView):
 
 
 class MapView(QGraphicsView):
-    ZOOM_DEFAULT_LEVEL = 20.9
-    ZOOM_MAX_LEVEL = 20.9
+    ZOOM_DEFAULT_LEVEL = 20
+    ZOOM_MAX_LEVEL = 20.75
     ZOOM_MIN_LEVEL = 0
 
     # Called on a screen resize, this is ALSO TRIGGERED when opening the application and loading the view the first time.
     s_resize_viewport = Signal(QSize)
     # min zoom (world) = 0, max zoom (building) = 20.9
     s_zoom_viewport = Signal(float, QPointF)
-    s_move_viewport = Signal(QPointF)
+    s_move_viewport = Signal(QSize)
     s_rotate_viewport = Signal(int)
 
 
@@ -283,11 +284,22 @@ class MapView(QGraphicsView):
         self.setScene(self.map_scene)
         self.show()
 
+        # move event (set on first mouseMove, reset on mouseRelease)
+        self.move_from_cursor_position = None
+
     def get_zoom(self) -> float:
         return self._current_zoom_level
 
+    # signals
+    @Slot(QSize)
+    def c_move_viewport(self, offset):
+        pass
+        self.horizontalScrollBar()
+
+
+    # events
+
     def wheelEvent(self, event: QWheelEvent) -> None:
-        return
         change = (event.angleDelta().y() / 1200) * 2.5 # 0.1 per bump * 2.5 = 0.25
         zoom = self._current_zoom_level + change
         if zoom > self.ZOOM_MAX_LEVEL:
@@ -298,35 +310,26 @@ class MapView(QGraphicsView):
         self._current_zoom_level = round(zoom, 2)
         self.s_zoom_viewport.emit(self._current_zoom_level, event.globalPosition())
 
-        # @todo We should probably start of with a sensible size....
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        self.log.warning(f"setting cursor {event.x()} {event.y()}")
+        self.setCursor(Qt.OpenHandCursor)
+        if self.move_from_cursor_position is None:
+            self.move_from_cursor_position = event.scenePosition()
+            return
+        old_pos = self.move_from_cursor_position
+        self.move_from_cursor_position = event.scenePosition()
+        # @todo I might have to reverse this... ;p
+        offset = QSize(
+            self.move_from_cursor_position.x() - old_pos.x(),
+            self.move_from_cursor_position.y() - old_pos.y(),
+            )
+        self.horizontalScrollBar().setValue(event.x())
+        self.verticalScrollBar().setValue(event.y())
+        self.s_move_viewport.emit(offset)
 
-        #
-        #
-        # self.map_zoom = self.ZOOM_DEFAULT
-        # self.map_rotate = 0
-        # self.map_move = 0
-        #
-        # self.show_stations = True
-        # self.show_station_names = True
-        # self.show_depths = True
-        #
-        # self.s_map_move.connect(self.c_map_move)
-        # self.s_map_rotate.connect(self.c_map_rotate)
-        # self.s_map_zoom.connect(self.c_map_zoom)
-        #
-        # self.s_show_stations.connect(self.c_show_stations)
-        # self.s_show_station_names.connect(self.c_show_station_names)
-        # self.s_show_depths.connect(self.c_show_depths)
-        #
-        # self.s_toggle_satellite.connect(self.c_toggle_satellite)
-
-
-
-        # self.map_scene.load_map_from_database()
-
-
-        # self.setAcceptDrops(True)
-        #self.show()
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self.setCursor(Qt.ArrowCursor)
+        self.move_from_cursor_position = None
 
     def resizeEvent(self, event: QResizeEvent):
         self.s_resize_viewport.emit(event.size())
@@ -334,24 +337,7 @@ class MapView(QGraphicsView):
     #
     # def c_map_zoom(self, zoom: int, zoom_center: QPointF):
     #     """
-    #     For zooming we will use the google/bing zooming logic.
-    #
-    #     zoom 0 represents to hole world in a single tile
-    #     every zoom-level doubles the amount of tiles IN BOTH DIRECTIONS:
-    #
-    #      zoom 0   1
-    #      zoom 1   1|1
-    #               1|1
-    #      zoom 2   1|1|1|1
-    #               1|1|1|1
-    #               1|1|1|1
-    #               1|1|1|1
-    #      and so on.
-    #
-    #      This means that every zoom-level increases or decreases the shown grounds-area by a factor of 2.
-    #
-    #
-    #     https://www.microimages.com/documentation/TechGuides/80TilesetZoom.pdf
+
     #
     #     :param zoom:
     #     :param zoom_center:

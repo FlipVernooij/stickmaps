@@ -1,6 +1,6 @@
 import logging
 
-from PySide6.QtCore import QPointF, Slot, QSize
+from PySide6.QtCore import QPointF, Slot, QSize, QRect, QPoint
 from PySide6.QtWidgets import QGraphicsItemGroup
 
 from Gui.Scene.Providers.Satellite import GoogleMapsProvider
@@ -19,9 +19,12 @@ class SatelliteOverlay(QGraphicsItemGroup):
         self.is_enabled = False
         # is the overlay visible or hidden?
         self.is_visible = False
-        # the center of the map
-        self.map_center = None
-        self.viewport_size = None # I can not set this on __init__, this is done by the c_resize_viewport slot which is also called before displaying the application at boot.
+        # the center of the map (the lat/lng set in the projectSettings)
+        self.map_center_latlng = None
+        # this is the center of the viewport as a xy, this is the same as map_center_latlng at project load, yet after moving or zooming this will be offset.
+        self.view_center_xy = None
+
+        self.viewport_size = QSize(0,0) # I can not set this on __init__, this is done by the c_resize_viewport slot which is also called before displaying the application at boot.
 
         self.zoom_level = self.map_view.get_zoom()
         self.zoom_center = None  # zooming should occur at cursor,.. or map_center when done with slider or such
@@ -30,10 +33,26 @@ class SatelliteOverlay(QGraphicsItemGroup):
         self.map_view.s_toggle_satellite.connect(self.c_toggle_visibility)
 
         self.map_view.s_resize_viewport.connect(self.c_resize_viewport)
+        self.map_view.s_move_viewport.connect(self.c_move_viewport)
         self.map_view.s_zoom_viewport.connect(self.c_zoom_viewport)
 
 
         self.show()
+
+    def boundingRect(self):
+        return self.childrenBoundingRect()
+
+    def center_on_view(self):
+        view_rect = self.map_view.mapToScene(QRect(QPoint(0, 0), self.viewport_size)).boundingRect()
+
+        sat_size = self.boundingRect()
+        view_size = self.viewport_size
+
+        left_offset = (sat_size.width() - view_size.width()) / 2
+        top_offset = (sat_size.height() - view_size.height()) / 2
+
+        self.setX(view_rect.left() - left_offset)
+        self.setY(view_rect.top() - top_offset)
 
     @Slot(dict)
     def c_project_changed(self, project: dict):
@@ -46,8 +65,8 @@ class SatelliteOverlay(QGraphicsItemGroup):
 
         if project['latitude'] != '' and project['longitude'] != '':
             center = QPointF(project['latitude'], project['longitude'])
-            if center != self.map_center:
-                self.map_center = center
+            if center != self.map_center_latlng:
+                self.map_center_latlng = center
                 # @todo This should not be LAT/LNG but a x/y position
                 self.zoom_center = None  # when zooming without the mouse, we use the map center as the zoom center.
             self.is_enabled = True
@@ -76,6 +95,10 @@ class SatelliteOverlay(QGraphicsItemGroup):
         self.viewport_size = new_size
         self.render()
 
+    @Slot(QSize)
+    def c_move_viewport(self, move_distance: QSize):
+        pass
+    
     def show(self):
         self.log.debug(f'Showing SatelliteOverlay')
         self.is_visible = True

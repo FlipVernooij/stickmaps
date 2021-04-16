@@ -16,9 +16,10 @@ if __name__ == '__main__':
 
     parent_app = QApplication(sys.argv)
     splash = Splash()
-    splash.show()
-    splash.setFocus()
-    parent_app.processEvents()
+    if Preferences.debug() is False:
+        splash.show()
+        splash.setFocus()
+        parent_app.processEvents()
 
     splash.showMessage("Loading settings.")
     parent_app.processEvents()

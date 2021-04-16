@@ -120,7 +120,7 @@ class TileGridMixin(GeoMixin):
                            tile_height: int,
                            zoom_level: float
 
-                           ) -> list:
+                           ) -> dict:
         """
             This method returns a list with all the lat/lng & x/y info for every tile that needs to be rendered.
             It will render 1 extra row on each side as a scroll-buffer as an attempt to allow fluid scrolling/zooming.
@@ -146,6 +146,11 @@ class TileGridMixin(GeoMixin):
             tile_count_height += 1
 
         tile_size = QSize(tile_width, tile_height)
+
+        response = {
+            "tile_count": QSize(tile_count_width, tile_count_height),
+            "grid_pixel_size": QSize(tile_count_width*tile_width, tile_count_height*tile_height),
+        }
 
         self.log.info(f'Grid-size set to w/h {tile_count_width}/{tile_count_height}')
 
@@ -242,8 +247,8 @@ class TileGridMixin(GeoMixin):
 
             if end_corner_loop == 4:
                 break
-
-        return render_tiles
+        response['tiles'] = render_tiles
+        return response
 
     def next_tile(self, last_corner: GridTileObject, heading: int, tile_size: QSize, zoom_level: float):
         rounded_zoom_level = math.floor(zoom_level)
