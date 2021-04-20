@@ -1,3 +1,4 @@
+from PySide6.QtCore import Slot
 from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -400,7 +401,8 @@ class ProxyModel(QStandardItemModel, ItemMixin):
         self.appendRow(self._import_item)
         self.appendRow(self._map_item)
 
-    def reload(self):
+    @Slot(dict)  # connected in MainApplicationWindow.__init__() as I don't have the parent here.
+    def c_load_project(self):
         imp = self.import_item()
         mp = self.map_item()
         imp.delete_children()

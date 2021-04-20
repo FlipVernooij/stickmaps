@@ -1,94 +1,22 @@
 import logging
 import math
 
-from PySide6.QtCore import QPointF, QSize, QThreadPool
+from PySide6.QtCore import QPointF, QSize
 
 from Config.Constants import GOOGLE_STATIC_MAPS_URL, GOOGLE_STATIC_MAPS_API_KEY, GOOGLE_MAPS_SCALING
 from Gui.Scene.Providers.Mixins import TileGridMixin
-from Models.TableModels import SqlManager
 from Utils.Settings import Preferences
 
 
 class GoogleMapsProvider(TileGridMixin):
 
-    TILE_HEIGHT = 640
-    TILE_WIDTH = 640
-
+    TILE_SIZE = QSize(640, 640)
     MAP_TYPE = 'satellite'
     IMAGE_EXTENSION = 'jpg'
-
-    def parent(self):
-        return self._parent
 
     def __init__(self, parent):
         self._parent = parent
         self.log = logging.getLogger(__name__)
-        self.sql_manager = SqlManager()
-        self.thread_pool = QThreadPool()
-
-        self.map_center_latlng: QPointF = None
-        self.map_zoom: float = self.parent().zoom_level
-        self.window_size: QSize = None
-        # when moving, map_center is different from window_center by QPointF.x() & QPointF.y()
-        self.window_offset: QPointF = QPointF(0.0, 0.0)
-
-    def render(self):
-        self.log.debug("GoogleMapsProvider Render called")
-
-        # Map moved...
-        if self.parent().map_center_latlng != self.map_center_latlng:
-            self.map_center_latlng = self.parent().map_center_latlng
-            self.map_zoom = self.parent().zoom_level
-            self.window_size = self.parent().viewport_size
-            # @todo screen move needs window offset to be re-set...
-            self._render_full()
-
-        # Zoom
-        if self.parent().zoom_level != self.map_zoom:
-            self.log.info(f'GoogleMapsProvider, zoom detected {self.map_zoom} / {self.parent().zoom_level}')
-
-    def _render_full(self):
-        """
-            We will do a complete re-render of the scene.
-            All tiles will be removed and re-rendered.
-
-        :return:
-        """
-        self.log.info("GoogleMapsProvider Full re-render")
-        tiles = self.get_tiles_for_grid(
-            map_center=self.map_center_latlng,
-            window_width=self.window_size.width(),
-            window_height=self.window_size.height(),
-            window_offset=self.window_offset,
-            tile_width=self.TILE_WIDTH,
-            tile_height=self.TILE_HEIGHT,
-            zoom_level=self.map_zoom
-        )
-        group = self.parent()
-       # group.
-        for tile in tiles['tiles']:
-            group.addToGroup(tile.graphics_item)
-            children = group.childrenBoundingRect()
-            worker = tile.thread_object()
-            worker.set_url(self)
-            self.thread_pool.start(worker)
-
-        self.parent().center_on_view()
-        children = group.childrenBoundingRect()
-        self.log.error(f'Bounding-rect = {children}')
-        #view = self.parent().parent().parent()
-        #view_port=view.viewport()
-        #view_rect=view.viewport().geometry()
-        #children.setPos(-200,-200)
-
-       # map_center = children.center(-200,-200)
-        foo = 1
-
-    def _flush(self):
-        children = self.parent().childItems()
-        if len(children) > 0:
-            for item in children:
-                self.parent().removeItem(item)  # @todo I might actually have to remove the item from the map_view instead...?
 
     def get_tile_url(self, lat_lng: QPointF, zoom_level: int):
         return f'{GOOGLE_STATIC_MAPS_URL}' \
@@ -97,7 +25,7 @@ class GoogleMapsProvider(TileGridMixin):
                f'&scaling={Preferences.get("google_maps_scaling", GOOGLE_MAPS_SCALING, int)}' \
                f'&zoom={math.floor(zoom_level)}' \
                f'&maptype={self.MAP_TYPE}' \
-               f'&size={self.TILE_WIDTH}x{self.TILE_HEIGHT}' \
+               f'&size={self.TILE_SIZE.width()}x{self.TILE_SIZE.height()}' \
                f'&format={self.IMAGE_EXTENSION}'
 
     def get_tile_cache_name(self, lat_lng: QPointF, zoom_level: int):

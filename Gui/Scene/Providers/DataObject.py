@@ -2,7 +2,7 @@ import logging
 
 from PySide6.QtCore import QObject, Signal, Qt, QPointF, QPoint, QRunnable, Slot, QSize
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QGraphicsPixmapItem
+from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsTextItem
 
 from Utils import Request
 
@@ -17,7 +17,7 @@ class GridTileObject(QObject):
     def pixmap_placeholder(self):
         if self._pixmap_placeholder is None:
             self._pixmap_placeholder = QPixmap(self.tile_size.width(), self.tile_size.height())
-            self._pixmap_placeholder.fill(Qt.gray)
+            self._pixmap_placeholder.fill(Qt.red)
         return self._pixmap_placeholder
 
     def __init__(self, lat_lng: QPointF, tile_xy: QPoint, tile_size: QSize, zoom_level: float):
@@ -31,8 +31,21 @@ class GridTileObject(QObject):
         self.graphics_item = QGraphicsPixmapItem()
         self.s_pixmap_ready.connect(self.update_pixmap)
 
+        self.type = 'default'
+
     def __repr__(self):
-        return f'x:{self.tile_xy.x()} / y:{self.tile_xy.y()}  - {self.lat()} / {self.lng()}'
+        return f'{self.type} x:{self.tile_xy.x()} / y:{self.tile_xy.y()}  - {self.lat()} / {self.lng()}'
+
+    def __eq__(self, other) -> bool:
+        if self.x() != other.x():
+            return False
+        if self.y() != other.y():
+            return False
+        if self.lat_lng != other.lat_lng:
+            return False
+        if self.zoom_level != other.zoom_level:
+            return False
+        return True
 
     def x(self):
         return self.tile_xy.x()
@@ -54,10 +67,10 @@ class GridTileObject(QObject):
         # -1 as we need the start of the tile, not the end
         return (self.y()-1) * self.tile_size.height()
 
-    def is_within_grid(self, grid_width: int, grid_height) -> bool:
-        if self.x() > grid_width or self.x() < 1:
+    def is_within_grid(self, grid_width_num: int, grid_height_num: int) -> bool:
+        if self.x() > grid_width_num or self.x() < 1:
             return False
-        if self.y() > grid_height or self.y() < 1:
+        if self.y() > grid_height_num or self.y() < 1:
             return False
         return True
 

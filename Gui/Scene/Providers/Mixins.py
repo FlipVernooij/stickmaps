@@ -54,8 +54,13 @@ class GeoMixin:
         ret.setY(y)
         return ret
 
-    def xy_value_for_pixels(self, pixels: int):
+    # @todo zoom-level is missing here....
+    def pixels_2_xy(self, pixels: int) -> float:
         return pixels / self.WORLD_TILE_SIZE
+
+    # @todo zoom-level is missing here....
+    def xy_2_pixels(self, xy: float) -> int:
+        return round(xy * self.WORLD_TILE_SIZE)
 
     """ @todo UNTESTED, CHECK THIS!!"""
     def azimuth_to_latlng(self, location_start: QPointF, length: float, azimuth: float) -> QPointF:
@@ -115,9 +120,7 @@ class TileGridMixin(GeoMixin):
                            map_center: QPointF,
                            window_width: int,
                            window_height: int,
-                           window_offset: QPointF,
-                           tile_width: int,
-                           tile_height: int,
+                           tile_size: QSize,
                            zoom_level: float
 
                            ) -> dict:
@@ -132,8 +135,8 @@ class TileGridMixin(GeoMixin):
         :return: list
         """
 
-        if window_offset != QPointF(0.0, 0.0):
-            self.log.error("Window offset found but not implemented.")
+        tile_height = tile_size.height()
+        tile_width = tile_size.width()
         if round(zoom_level) != zoom_level:
             self.log.error('Floating zoom level found but not implemented.')
 
@@ -167,15 +170,19 @@ class TileGridMixin(GeoMixin):
         c_nw = center_tile
         while True:
             end_corner_loop = 0
-            c_ne = self.next_tile(c_ne, self.HEADING_NORTH_EAST, tile_size, zoom_level)
-            c_se = self.next_tile(c_se, self.HEADING_SOUTH_EAST, tile_size, zoom_level)
-            c_sw = self.next_tile(c_sw, self.HEADING_SOUTH_WEST, tile_size, zoom_level)
-            c_nw = self.next_tile(c_nw, self.HEADING_NORTH_WEST, tile_size, zoom_level)
+            c_ne = self.next_tile(c_ne, self.HEADING_NORTH_EAST)
+            c_ne.type = 'c_ne'
+            c_se = self.next_tile(c_se, self.HEADING_SOUTH_EAST)
+            c_se.type = 'c_se'
+            c_sw = self.next_tile(c_sw, self.HEADING_SOUTH_WEST)
+            c_sw.type = 'c_sw'
+            c_nw = self.next_tile(c_nw, self.HEADING_NORTH_WEST)
+            c_nw.type = 'c_nw'
 
             if c_ne.is_within_grid(tile_count_width, tile_count_height) is False:
                 # check if we need to change corner position (widescreen)
                 if c_ne.x() <= tile_count_width:
-                    c_ne = self.next_tile(c_ne, self.HEADING_SOUTH, tile_size, zoom_level)
+                    c_ne = self.next_tile(c_ne, self.HEADING_SOUTH)
                     render_tiles.append(c_ne)
                 else:
                     end_corner_loop += 1
@@ -185,7 +192,7 @@ class TileGridMixin(GeoMixin):
             if c_se.is_within_grid(tile_count_width, tile_count_height) is False:
                 # check if we need to change corner position  (widscreen)
                 if c_se.y() <= tile_count_height:
-                    c_se = self.next_tile(c_se, self.HEADING_WEST, tile_size, zoom_level)
+                    c_se = self.next_tile(c_se, self.HEADING_WEST)
                     render_tiles.append(c_se)
                 else:
                     end_corner_loop += 1
@@ -195,7 +202,7 @@ class TileGridMixin(GeoMixin):
             if c_sw.is_within_grid(tile_count_width, tile_count_height) is False:
                 # check if we need to change corner position (widscreen)
                 if c_sw.x() >= 1:
-                    c_sw = self.next_tile(c_sw, self.HEADING_NORTH, tile_size, zoom_level)
+                    c_sw = self.next_tile(c_sw, self.HEADING_NORTH)
                     render_tiles.append(c_sw)
                 else:
                     end_corner_loop += 1
@@ -204,7 +211,7 @@ class TileGridMixin(GeoMixin):
 
             if c_nw.is_within_grid(tile_count_width, tile_count_height) is False:
                 if c_nw.y() >= 1:
-                    c_nw = self.next_tile(c_nw, self.HEADING_EAST, tile_size, zoom_level)
+                    c_nw = self.next_tile(c_nw, self.HEADING_EAST)
                     render_tiles.append(c_nw)
                 else:
                     end_corner_loop += 1
@@ -218,26 +225,30 @@ class TileGridMixin(GeoMixin):
 
             while True:
                 end_row_loop = 0
-                r_s = self.next_tile(r_s, self.HEADING_SOUTH, tile_size, zoom_level)
-                if r_s.is_within_grid(tile_count_width, tile_count_height) is False:
+                r_s = self.next_tile(r_s, self.HEADING_SOUTH)
+                r_s.type = 'r_s'
+                if r_s.is_within_grid(tile_count_width, tile_count_height) is False or r_s == c_se:
                     end_row_loop += 1
                 else:
                     render_tiles.append(r_s)
 
-                r_w = self.next_tile(r_w, self.HEADING_WEST, tile_size, zoom_level)
-                if r_w.is_within_grid(tile_count_width, tile_count_height) is False:
+                r_w = self.next_tile(r_w, self.HEADING_WEST)
+                r_w.type = 'r_w'
+                if r_w.is_within_grid(tile_count_width, tile_count_height) is False or r_w == c_sw:
                     end_row_loop += 1
                 else:
                     render_tiles.append(r_w)
 
-                r_n = self.next_tile(r_n, self.HEADING_NORTH, tile_size, zoom_level)
-                if r_n.is_within_grid(tile_count_width, tile_count_height) is False:
+                r_n = self.next_tile(r_n, self.HEADING_NORTH)
+                r_n.type = 'r_n'
+                if r_n.is_within_grid(tile_count_width, tile_count_height) is False or r_n == c_nw:
                     end_row_loop += 1
                 else:
                     render_tiles.append(r_n)
 
-                r_e = self.next_tile(r_e, self.HEADING_EAST, tile_size, zoom_level)
-                if r_e.is_within_grid(tile_count_width, tile_count_height) is False:
+                r_e = self.next_tile(r_e, self.HEADING_EAST)
+                r_e.type = 'r_e'
+                if r_e.is_within_grid(tile_count_width, tile_count_height) is False or r_e == c_ne:
                     end_row_loop += 1
                 else:
                     render_tiles.append(r_e)
@@ -250,13 +261,16 @@ class TileGridMixin(GeoMixin):
         response['tiles'] = render_tiles
         return response
 
-    def next_tile(self, last_corner: GridTileObject, heading: int, tile_size: QSize, zoom_level: float):
+    def next_tile(self, last_tile: GridTileObject, heading: int):
+        zoom_level = last_tile.zoom_level
+        tile_size = last_tile.tile_size
+
         rounded_zoom_level = math.floor(zoom_level)
-        latlng = self.latlng_2_xy(last_corner.lat_lng, rounded_zoom_level)
+        latlng = self.latlng_2_xy(last_tile.lat_lng, rounded_zoom_level)
         offset = QPoint(0, 0)
 
-        map_height = self.xy_value_for_pixels(tile_size.height())
-        map_width = self.xy_value_for_pixels(tile_size.width())
+        map_height = self.pixels_2_xy(tile_size.height())
+        map_width = self.pixels_2_xy(tile_size.width())
 
         if heading in (self.HEADING_NORTH, self.HEADING_NORTH_EAST, self.HEADING_NORTH_WEST):
             latlng.setY(latlng.y() + (map_height * -1))
@@ -272,7 +286,7 @@ class TileGridMixin(GeoMixin):
             offset.setX(1 * -1)
 
         lat_lng = self.xy_2_latlng(latlng, rounded_zoom_level)
-        tile_xy = last_corner.tile_xy + offset
+        tile_xy = last_tile.tile_xy + offset
 
         return GridTileObject(
             lat_lng=lat_lng,
@@ -280,3 +294,22 @@ class TileGridMixin(GeoMixin):
             tile_size=tile_size,
             zoom_level=zoom_level
         )
+
+    def get_latlng_for_tile(self, tile_coord: QPointF, from_tile: GridTileObject) -> QPointF:
+        x_direction = self.HEADING_EAST
+        y_direction = self.HEADING_NORTH
+
+        if tile_coord.x() < 0:
+            x_direction = self.HEADING_WEST
+        if tile_coord.y() < 0:
+            y_direction = self.HEADING_SOUTH
+        tile = from_tile
+        for i in range(0, tile_coord.x()):
+            tile = self.next_tile(tile, x_direction)
+
+        for i in range(0, tile_coord.y()):
+            tile = self.next_tile(tile, y_direction)
+
+        return tile.lat_lng
+
+

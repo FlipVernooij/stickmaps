@@ -56,7 +56,7 @@ class SaveFile():
         self._load_to_db(data['database'])
         project = self.sql_manager.factor(ProjectSettings)
         data = project.get()
-        self._update_ui(data['project_name'])
+        self._update_ui(data)
 
     def create_new_project(self, project_name, latitude, longitude) -> bool:
         settings = QSettings()
@@ -67,11 +67,11 @@ class SaveFile():
         sql = self.sql_manager.factor(ProjectSettings)
         sql.insert(project_name, latitude, longitude)
         self.save_to_file()
-        self._update_ui(project_name)
+        self._update_ui(sql.get())
         return True
 
-    def _update_ui(self, project_name):
-        self.parent.start_project(project_name)
+    def _update_ui(self, project_data: dict):
+        self.parent.s_load_project.emit(project_data)
 
     def _open_file(self) -> dict:
         data = self._read()

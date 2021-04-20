@@ -1,10 +1,11 @@
 # QGraphicsScene
 import logging
+import math
 
-from PySide6.QtCore import Qt, QRect, QSize, Slot
+from PySide6.QtCore import Qt, QRect, QSize, Slot, QPointF, Signal
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsItem
 
-from Gui.Scene.Overlays import SatelliteOverlay
+from Gui.Scene.Overlays import SatelliteOverlay, GridOverlay
 from Models.TableModels import SqlManager, ImportSurvey, ImportLine, ImportStation, ProjectSettings
 
 """
@@ -22,46 +23,83 @@ ATM: I am fetching the tiles around the centerpoint of the map (lat/lng from pro
 """
 class MainScene(QGraphicsScene):
 
-    DEFAULT_SCENE_RECT = QRect(0,0, 6400, 6400)
+    # max = 256*math.pow(2, 21) (256 is world_tiles, 21=zoom_level)
+    WORLD_RECT = QRect(0, 0, 536870912, 536870912)
+
+    """
+    Sets the background color of the scene.
+    """
+    s_set_background_color = Signal(object)
+
+    """
+        Called when the scene is resized (enlarged) this is NOT emitted when the view resizes.
+        old_size: QRect
+        new_size: QRect
+    """
+    s_scene_resize = Signal(QRect, QRect)
+
+    @Slot(object)
+    def c_set_background_color(self, color):
+        self.setBackgroundBrush(color)
+
+    @Slot(dict)
+    def c_load_project(self, project: dict):
+        self.log.debug(f'MainScene: Loading new project: "{project["project_name"]}"')
+        self.s_set_background_color.emit(Qt.white)
+
+    @Slot(QSize, QSize)
+    def c_view_resize(self, old_size: QSize, new_size: QSize):
+        pass
+        if new_size.width() > self.sceneRect().width() or new_size.height() > self.sceneRect().height():
+            self.log.debug("Scene resize called, enlarging scene")
+            # we have to resize the scene
+            old_rect = self.sceneRect()
+            self.setSceneRect(QRect(0, 0, new_size.width(), new_size.height()))
+            self.s_scene_resize.emit(old_rect, self.sceneRect())
+        else:
+            self.log.debug(f"Scene resize called: scene is bigger then view")
+            # we don't do anything.
+            pass
+
+
+    def view_rect(self) -> QRect:
+        return self.parent().mapToScene(self.parent().viewport().rect()).boundingRect()
 
     def __init__(self, parent):
         super().__init__(parent=parent)
         self.log = logging.getLogger(__name__)
-        self._init_database_objects()
+        self.setSceneRect(self.WORLD_RECT)
+        # Connect signals
+        parent.parent().s_load_project.connect(self.c_load_project)
+        self.s_set_background_color.connect(self.c_set_background_color)
+        parent.s_view_resize.connect(self.c_view_resize)
+
+
+        #self._init_database_objects()
         self._overlays = {}  # Contains all the overlays required for this Scene.
 
-        """ Init Scene configuration """
-        self.setSceneRect(self.DEFAULT_SCENE_RECT)
-        self.set_background_color(Qt.white)
 
         """ Init project properties """
         self.current_project = None  # list holding the current project data.
-        self.project_latlng_set = False  # set to true when the latitude and longitude are set for this project
 
-        self.scene_center_latlng = None
-        self.scene_center_xy = None
 
         """ Add default overlays """
-        self.add_overlay(object=SatelliteOverlay(self), position=0)  # Used for rendering satelite images as a background.
+        #self.add_overlay(object=SatelliteOverlay(self), position=10)  # Used for rendering satelite images as a background.
+        self.add_overlay(object=GridOverlay(self), position=20)
+        #
+        # self.parent().s_move_viewport.connect(self.c_move_viewport)
 
-        self.parent().s_move_viewport.connect(self.c_move_viewport)
+    # def _init_database_objects(self):
+    #     self._sql_manager = SqlManager()
+    #     self.db_project = self._sql_manager.factor(ProjectSettings)
+    #     self.db_import_survey = self._sql_manager.factor(ImportSurvey)
+    #     self.db_import_line = self._sql_manager.factor(ImportLine)
+    #     self.db_import_station = self._sql_manager.factor(ImportStation)
+    #
 
-
-    def _init_database_objects(self):
-        self._sql_manager = SqlManager()
-        self.db_project = self._sql_manager.factor(ProjectSettings)
-        self.db_import_survey = self._sql_manager.factor(ImportSurvey)
-        self.db_import_line = self._sql_manager.factor(ImportLine)
-        self.db_import_station = self._sql_manager.factor(ImportStation)
-
-    # @todo This could be done in a better way right.. maybe connect to a "reload" signal within the main window?
-    def reload(self):
-        self.current_project = self.db_project.get()
-        self.parent().s_project_changed.emit(self.current_project)
-        self.log.info(f'MainScene.reload() loaded project {self.current_project["project_name"]} (this should be a signal..)')
-
-    def set_background_color(self, color):
-        self.setBackgroundBrush(color)
+    @property
+    def main_application(self):
+        return self.parent().parent()
 
     def add_overlay(self,  object, name: str = None, position: int = None):
         """
@@ -89,14 +127,45 @@ class MainScene(QGraphicsScene):
 
     def remove_overlay(self, name: str):
         del self._overlays[name]
-
-    # signals
-    @Slot(QSize)
-    def c_move_viewport(self, offset):
-        pass
+    #
+    # # I should propably move these somewhere... yet I don't know where yet
+    # def meters_per_pixel(self, zoom_level: float = None, latitude: float = None):
+    #     if zoom_level is None:
+    #         zoom_level = self.get_zoom()
+    #     if latitude is None:
+    #         try:
+    #             if self.current_project['latitude'] is float:
+    #                 latitude = self.current_project['latitude']
+    #             else:
+    #                 raise KeyError('bla')
+    #         except KeyError:
+    #             latitude = 20.4916217646394  # we need to use a dummy value (eden)
+    #
+    #     return 156543.03392 * math.cos(latitude * math.pi / 180) / math.pow(2, zoom_level)
+    #
+    # # signals
+    # @Slot(QSize)
+    # def c_move_viewport(self, offset: QSize):
+    #     pass
+    #
+    # @Slot(float, float, QPointF)
+    # def c_zoom_viewport(self, old_zoom: float, zoom_level: float,  cursor_pos: QPointF):
+    #   pass
+    #
+    # @Slot(QRect, QSize)
+    # def c_resize_scene(self, rect: QRect, offset: QSize):
+    #     """
+    #
+    #     :param rect: the new rectangle dimensions
+    #     :param offset: the x/y offset between the old and new retangle
+    #     :return:
+    #     """
+    #     self.setSceneRect(rect)
+    #     self.parent().s_move_viewport.emit(offset)
 
 
     # events
+
 
  #
  #    def reload(self):
