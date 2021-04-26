@@ -28,8 +28,8 @@ ATM: I am fetching the tiles around the centerpoint of the map (lat/lng from pro
 class MainScene(QGraphicsScene, TranslateCoordinates):
     """
     Coordinate system:
-        In order to make this as simple as humanly possible, the Scene coordinates are according to the "World Geodetic System WGS84"
-        As most map application (ea. google-maps) are using the same coordinate system, we minimize the translations between different systems.
+        In order to make this as simple as humanly possible, the Scene coordinates are according to the "Pixel coordinates at zoom level 20"
+        As most map application (ea. google-maps) are able to translate to the same coordinate system, we minimize the translations between different systems.
 
         Notes:
                 - without transformations, the QGraphicalScene coordinates is 1 coordinate == 1 pixel
@@ -55,8 +55,8 @@ class MainScene(QGraphicsScene, TranslateCoordinates):
 
     Naming:
 
-        lat_lng = latitude/longitude
-        xy = WGS84 coordinate, references to both scene coordinate as Mercator projection coordinates (google & bing?)
+        lat_lng = latitude/longitude WGS84 coordinate
+        xy = this as pixel coordinates at zoom level 20, our scene is using these.
         p_xy = The coordinate of a pixel within the ViewPort (and not scene!), we should try to avoid this.
 
 

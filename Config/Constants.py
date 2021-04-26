@@ -82,6 +82,7 @@ GOOGLE_MAPS_SCALING = 2
 # When a project doesn't have a lat/lng set, we need to have a default to calculate our scene from.
 SCENE_DEFAULT_LATITUDE = 20.491621764639405
 SCENE_DEFAULT_LONGITUDE = -87.25863770346321
+SCENE_MAP_TILE_SIZE = 256
 SCENE_DEFAULT_ZOOM = 20
 
 DEGREES_N = 0
