@@ -8,6 +8,8 @@ from Gui.Scene.Providers.DataObject import GridTileObject
 class GeoMixin:
     WORLD_TILE_SIZE = 256
 
+
+
     HEADING_NORTH = 360
     HEADING_NORTH_EAST = 45
     HEADING_EAST = 90
@@ -16,6 +18,19 @@ class GeoMixin:
     HEADING_SOUTH_WEST = 225
     HEADING_WEST = 270
     HEADING_NORTH_WEST = 315
+
+    @classmethod
+    def distance_2_meters(cls, xy_distance: float, zoom_level: float) -> float:
+        meters_per_pixel = cls.EQUATOR_LENGTH_METERS / cls.WORLD_TILE_SIZE
+        print(f'meters per pixel: {meters_per_pixel}')
+        meters_per_pixel_at_zoom = math.log(meters_per_pixel) / zoom_level
+        print(f'meters_per_pixel_at_zoom: {meters_per_pixel_at_zoom}')
+        meters_in_distance = meters_per_pixel_at_zoom * xy_distance
+        print(f'meters_in_distance: {meters_in_distance}')
+        return meters_in_distance
+
+
+
 
     def xy_2_latlng(self, xy: QPointF, zoom: int) -> QPointF:
         """

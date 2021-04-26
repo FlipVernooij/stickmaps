@@ -257,6 +257,10 @@ class MapView(QGraphicsView):
     #
 
     # View resize (old_size, new_size)
+
+    # Center the viewport a given xy coordinate.
+    s_view_center_at_xy = Signal(QPointF)
+
     s_view_resize = Signal(QSize, QSize)
     # View move (old_pos, new_pos)
     s_view_move = Signal(QPointF, QPointF)
@@ -285,6 +289,11 @@ class MapView(QGraphicsView):
 
         self.setTransformationAnchor(QGraphicsView.NoAnchor)
         self.translate(new_pos.x() - old_pos.x(), new_pos.y() - old_pos.y())
+
+    @Slot(QPointF)
+    def c_view_center_at_xy(self, xy: QPointF):
+        self.log.debug(f'CENTER TO {xy}')
+        self.centerOn(xy)
 
     # events
     def resizeEvent(self, event: QResizeEvent):
@@ -328,13 +337,18 @@ class MapView(QGraphicsView):
 
         self.parent().s_load_project.connect(self.c_load_project)
         self.s_view_move.connect(self.c_view_move)
+        self.s_view_center_at_xy.connect(self.c_view_center_at_xy)
         #self._current_zoom_level = self.ZOOM_DEFAULT_LEVEL
 
         self.map_scene = MainScene(self)
         self.setScene(self.map_scene)
 
-        self.show()
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        # dont set globaly...
+        #self.setTransformationAnchor(self.AnchorUnderMouse)
 
+        self.show()
 
         # move event (set on first mouseMove, reset on mouseRelease)
         self.mouse_move_from_cursor_position = None

@@ -66,10 +66,7 @@ SQL_TABLE_CONTACTS = "contacts"
 SQL_TABLE_EXPLORERS = "explorers"
 SQL_TABLE_SURVEYORS = "surveyors"
 
-# preference defaults
-## @todo Remove these... unused
-DEFAULT_LATITUDE = 20.49162176463940  # 5
-DEFAULT_LONGITUDE = -87.25863770346321
+
 
 logging.getLogger(__name__).warning('Using "STOLEN" google-api key, DO NOT RELEASE LIKE THIS')
 
@@ -78,6 +75,22 @@ GOOGLE_STATIC_MAPS_URL = 'https://maps.googleapis.com/maps/api/staticmap'
 GOOGLE_STATIC_MAPS_CACHE_DIR = f'{DS}google_static'
 
 GOOGLE_MAPS_SCALING = 2
-GOOGLE_MAPS_DEFAULT_ZOOM = 20
+
+
+# Scene constants
+
+# When a project doesn't have a lat/lng set, we need to have a default to calculate our scene from.
+SCENE_DEFAULT_LATITUDE = 20.491621764639405
+SCENE_DEFAULT_LONGITUDE = -87.25863770346321
+SCENE_DEFAULT_ZOOM = 20
+
+DEGREES_N = 0
+DEGREES_NE = 45
+DEGREES_E = 90
+DEGREES_SE = 135
+DEGREES_S = 180
+DEGREES_SW = 225
+DEGREES_W = 270
+DEGREES_NW = 315
 
 

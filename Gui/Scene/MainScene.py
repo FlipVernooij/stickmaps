@@ -5,6 +5,8 @@ import math
 from PySide6.QtCore import Qt, QRect, QSize, Slot, QPointF, Signal
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsItem
 
+from Config.Constants import DEGREES_NW
+from Gui.Scene.CoordSystem import TranslateCoordinates
 from Gui.Scene.Overlays import SatelliteOverlay, GridOverlay
 from Models.TableModels import SqlManager, ImportSurvey, ImportLine, ImportStation, ProjectSettings
 
@@ -21,10 +23,47 @@ ATM: I am fetching the tiles around the centerpoint of the map (lat/lng from pro
     
     I made the zoom from 0 till 20.9 using the float as an extra zoom option.
 """
-class MainScene(QGraphicsScene):
 
-    # max = 256*math.pow(2, 21) (256 is world_tiles, 21=zoom_level)
-    WORLD_RECT = QRect(0, 0, 536870912, 536870912)
+
+class MainScene(QGraphicsScene, TranslateCoordinates):
+    """
+    Coordinate system:
+        In order to make this as simple as humanly possible, the Scene coordinates are according to the "World Geodetic System WGS84"
+        As most map application (ea. google-maps) are using the same coordinate system, we minimize the translations between different systems.
+
+        Notes:
+                - without transformations, the QGraphicalScene coordinates is 1 coordinate == 1 pixel
+
+    Scene size:
+        Having performance in mind, by default the Scene size is limited, there is no reason to render/prepare the hole world.
+        By default the Scene size will be a rectangle of 500 square km, centered on the project lat_lng.
+        At a later stage we might make this a property that can be changed.
+
+    Zooming:
+        The Scene will always be the same size, zooming happens by changing the ViewPort scale and not the Scene itself.
+        This free's most overlays from dealing with zoom-levels and such and keeps the coordinate system consistent.
+
+        Scene static zoom-level is set in CoordSystem (SCENE_ZOOM) and is currently set at 20.
+
+        Zooming should occur at mouse-pointer,
+            - zooming over te edge of the SceneRect (zoom out at the edge of the rect) will result in a
+                visual non-destructive notification and push the viewport as required (making it possible to use QT default scale methods)
+
+    Rotate:
+        Same logic as Zooming.
+
+
+    Naming:
+
+        lat_lng = latitude/longitude
+        xy = WGS84 coordinate, references to both scene coordinate as Mercator projection coordinates (google & bing?)
+        p_xy = The coordinate of a pixel within the ViewPort (and not scene!), we should try to avoid this.
+
+
+    """
+
+    # The size of the scene in KM.
+    SCENE_SIZE = QSize(500, 500)
 
     """
     Sets the background color of the scene.
@@ -45,21 +84,13 @@ class MainScene(QGraphicsScene):
     @Slot(dict)
     def c_load_project(self, project: dict):
         self.log.debug(f'MainScene: Loading new project: "{project["project_name"]}"')
+        self._set_scenerect_at(project['latitude'], project['longitude'])
+        #self.parent().s_view_center_at_xy.emit(self.latlng_2_xy(QPointF(project['latitude'], project['longitude'])))
         self.s_set_background_color.emit(Qt.white)
 
     @Slot(QSize, QSize)
     def c_view_resize(self, old_size: QSize, new_size: QSize):
         pass
-        if new_size.width() > self.sceneRect().width() or new_size.height() > self.sceneRect().height():
-            self.log.debug("Scene resize called, enlarging scene")
-            # we have to resize the scene
-            old_rect = self.sceneRect()
-            self.setSceneRect(QRect(0, 0, new_size.width(), new_size.height()))
-            self.s_scene_resize.emit(old_rect, self.sceneRect())
-        else:
-            self.log.debug(f"Scene resize called: scene is bigger then view")
-            # we don't do anything.
-            pass
 
 
     def view_rect(self) -> QRect:
@@ -68,7 +99,7 @@ class MainScene(QGraphicsScene):
     def __init__(self, parent):
         super().__init__(parent=parent)
         self.log = logging.getLogger(__name__)
-        self.setSceneRect(self.WORLD_RECT)
+
         # Connect signals
         parent.parent().s_load_project.connect(self.c_load_project)
         self.s_set_background_color.connect(self.c_set_background_color)
@@ -127,6 +158,27 @@ class MainScene(QGraphicsScene):
 
     def remove_overlay(self, name: str):
         del self._overlays[name]
+
+    def _set_scenerect_at(self, latitude: float, longitude: float) -> QRect:
+        """
+            Called on project load
+        """
+        center_latlng = QPointF(latitude, longitude)
+        # I need 50% of the diameter...
+        offset = math.sqrt(math.pow(self.SCENE_SIZE.width(), 2) + math.pow(self.SCENE_SIZE.height(), 2)) / 2
+        topleft_latlng = self.latlng_at_distance(center_latlng, offset, DEGREES_NW)
+        tl_xy = self.latlng_2_xy(topleft_latlng)
+        xy_per_km = self.xy_per_km_at(center_latlng)
+        width = self.SCENE_SIZE.width() * xy_per_km
+        height = self.SCENE_SIZE.height() * xy_per_km
+        rect = QRect(tl_xy.toPoint(), QSize(round(width), round(height)))
+        self.setSceneRect(rect)
+        self.log.debug(f'SceneRect set to: {rect}')
+
+        return rect
+
+        
+
     #
     # # I should propably move these somewhere... yet I don't know where yet
     # def meters_per_pixel(self, zoom_level: float = None, latitude: float = None):
