@@ -16,17 +16,20 @@ WORLD_MEAN_RADIUS_METERS = 6371008.8
 class TranslateCoordinates:
 
     def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.mercator = GlobalMercator()
 
     @property
     def xy_per_km(self) -> float:
-        mx, my = self.mercator.MetersToPixels(1000, 0)
-        return mx
+        return 6698.324242043919
 
     @property
     def xy_per_m(self) -> float:
-        mx, my = self.mercator.MetersToPixels(1, 0)
-        return mx
+        # https: // www.maptiler.com / google - maps - coordinates - tile - bounds - projection /
+        # @todo yet I think this might have to be lat/lng depended?
+        meters_per_pixel = 0.149291071
+        pixels_per_meter = 6.6983242420439195  # 1 / 0.149291071
+        return 6.6983242420439195
 
     def latlng_2_xy(self, latlng: QPointF) -> QPointF:
         mx, my = self.mercator.LatLonToMeters(latlng.x(), latlng.y())
@@ -38,13 +41,13 @@ class TranslateCoordinates:
         lat, lng = self.mercator.MetersToLatLon(mx, my)
         return QPointF(lat, lng)
 
-    def xy_rect_with_center_at(self, latlng: QPointF, size_in_meters: QSizeF ) -> QRect:
+    def xy_rect_with_center_at(self, latlng: QPointF, size_in_meters: QSizeF) -> QRect:
         # center_xy = self.latlng_2_xy(latlng)
         half_diameter = math.sqrt(math.pow(size_in_meters.width(), 2) + math.pow(size_in_meters.height(), 2)) / 2
         top_left_latlng = self.latlng_at_distance(latlng, half_diameter, DEGREES_NW)
         top_left_xy = self.latlng_2_xy(top_left_latlng)
         m_xy = self.xy_per_m
-        rect = QRect(top_left_xy, QSize(size_in_meters.width()*m_xy, size_in_meters.height()*m_xy))
+        rect = QRect(top_left_xy.toPoint(), QSize(size_in_meters.width()*m_xy, size_in_meters.height()*m_xy))
         return rect
 
 
@@ -166,6 +169,8 @@ class GlobalMercator(object):
         self.originShift = 2 * math.pi * EQUATOR_RADIUS_METERS / 2.0
         # 20037508.342789244
 
+    # Meters is a projection-method, not a measurement unit...
+    # it is an xy grid based on meters.
     def LatLonToMeters(self, lat, lon):
         "Converts given lat/lon in WGS84 Datum to XY in Spherical Mercator EPSG:900913"
         mx = lon * self.originShift / 180.0
@@ -244,7 +249,7 @@ class GlobalMercator(object):
         "Resolution (meters/pixel) for given zoom level (measured at Equator)"
         if zoom is None:
             zoom = self.zoomLevel
-        # return (2 * math.pi * 6378137) / (self.tileSize * 2**zoom)
+        return (2 * math.pi * 6378137) / (self.tileSize * 2**zoom)
         return self.initialResolution / (2 ** zoom)
 
     def ZoomForPixelSize(self, pixelSize):

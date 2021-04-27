@@ -25,7 +25,7 @@ ATM: I am fetching the tiles around the centerpoint of the map (lat/lng from pro
 """
 
 
-class MainScene(QGraphicsScene, TranslateCoordinates):
+class MainScene(TranslateCoordinates, QGraphicsScene):
     """
     Coordinate system:
         In order to make this as simple as humanly possible, the Scene coordinates are according to the "Pixel coordinates at zoom level 20"
@@ -97,8 +97,10 @@ class MainScene(QGraphicsScene, TranslateCoordinates):
         return self.parent().mapToScene(self.parent().viewport().rect()).boundingRect()
 
     def __init__(self, parent):
-        super().__init__(parent=parent)
+        super().__init__(parent=parent) ### why is TranslateCoordinates __init__() not called.
         self.log = logging.getLogger(__name__)
+
+
 
         # Connect signals
         parent.parent().s_load_project.connect(self.c_load_project)
@@ -164,14 +166,8 @@ class MainScene(QGraphicsScene, TranslateCoordinates):
             Called on project load
         """
         center_latlng = QPointF(latitude, longitude)
-        # I need 50% of the diameter...
-        offset = math.sqrt(math.pow(self.SCENE_SIZE.width(), 2) + math.pow(self.SCENE_SIZE.height(), 2)) / 2
-        topleft_latlng = self.latlng_at_distance(center_latlng, offset, DEGREES_NW)
-        tl_xy = self.latlng_2_xy(topleft_latlng)
-        xy_per_km = self.xy_per_km_at(center_latlng)
-        width = self.SCENE_SIZE.width() * xy_per_km
-        height = self.SCENE_SIZE.height() * xy_per_km
-        rect = QRect(tl_xy.toPoint(), QSize(round(width), round(height)))
+        rect = self.xy_rect_with_center_at(center_latlng, self.SCENE_SIZE*1000)
+
         self.setSceneRect(rect)
         self.log.debug(f'SceneRect set to: {rect}')
 

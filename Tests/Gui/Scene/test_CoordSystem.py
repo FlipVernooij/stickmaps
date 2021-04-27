@@ -77,8 +77,11 @@ class TestTranslateCoordinates:
         assert actual_latlng.x() == lat_lng.x(), "Latitude does not match"
         assert actual_latlng.y() == lat_lng.y(), "Longitude does not match"
 
-    @pytest.mark.parametrize("lat_lng,result_rect", [
-        [QPointF(43.09963063166313, -78.0664504873053), QRect(QPoint(10,10), QSize(5000, 5000))]
+    @pytest.mark.parametrize("lat_lng,size_in_meters,expected", [
+        [QPointF(43.09963063166313, -78.0664504873053), QSize(500000, 500000), QRect(73623585, 172194437, 3349162, 3349162)]
     ])
-    def test_xy_rect_with_center_at(self, lat_lng: QPointF, result_rect: QRect):
-        pass
+    def test_xy_rect_with_center_at(self, lat_lng: QPointF, size_in_meters: QSize, expected: QRect):
+        obj = TranslateCoordinates()
+        actual = obj.xy_rect_with_center_at(lat_lng, size_in_meters)
+
+        assert actual == expected, "Rect is not as expected"
