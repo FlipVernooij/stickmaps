@@ -1,15 +1,17 @@
 import logging
 import os
 
-from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal, QPointF, Slot, QRect
+from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal, QPointF, Slot, QRect, QUrl
 from PySide6.QtGui import QIcon, Qt, QCloseEvent, QDrag, QPixmap, QColor, QWheelEvent, QResizeEvent, QMouseEvent, \
     QCursor
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtQuick import QQuickView
+from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
     QAbstractItemView, QVBoxLayout, QTextBrowser, QPushButton, QComboBox, QHBoxLayout, QGraphicsView, QSplashScreen
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
-    MAIN_WINDOW_ICON, DEBUG, APPLICATION_SPLASH_IMAGE
+    MAIN_WINDOW_ICON, DEBUG, APPLICATION_SPLASH_IMAGE, QML_MAPVIEW
 from Gui.Actions import GlobalActions
 from Gui.Dialogs import StartupWidget
 from Gui.Scene.MainScene import MainScene
@@ -234,7 +236,15 @@ class SurveyOverview(QTreeView):
         event.accept()
 
 
-class MapView(QGraphicsView):
+class MapView(QQuickWidget):
+    def __init__(self, parent):
+        super().__init__()
+        url = QUrl(QML_MAPVIEW)
+        self.setSource(url)
+        # .setResizeMode(QQuickView.SizeRootObjectToView)
+        self.show()
+
+class OLD_MapView(QGraphicsView):
     # ZOOM_DEFAULT_LEVEL = 20
     # ZOOM_MAX_LEVEL = 20.75
     # ZOOM_MIN_LEVEL = 0
@@ -292,8 +302,8 @@ class MapView(QGraphicsView):
 
     @Slot(QPointF)
     def c_view_center_at_xy(self, xy: QPointF):
-        self.log.debug(f'CENTER TO {xy}')
-        self.centerOn(xy)
+        self.log.debug(f'CENTER TO {xy}, {int(xy.x())}, {int(xy.y())}')
+        self.centerOn(int(xy.x()), int(xy.y()))
 
     # events
     def resizeEvent(self, event: QResizeEvent):

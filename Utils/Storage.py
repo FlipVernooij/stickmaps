@@ -23,7 +23,7 @@ class SaveFile():
     def check_if_save_required(self):
         if self.settings.value('SaveFile/is_changed', False) is True:
             response = QMessageBox.question(self.parent, 'Save current changes?',
-                                            'You have a file with pending changes. \n Do you want to save changes?',
+                                                'You have a file with pending changes. \n Do you want to save changes?',
                                             QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
             if response == QMessageBox.Yes:
                 self.save_to_file()

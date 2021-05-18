@@ -66,7 +66,7 @@ SQL_TABLE_CONTACTS = "contacts"
 SQL_TABLE_EXPLORERS = "explorers"
 SQL_TABLE_SURVEYORS = "surveyors"
 
-
+QML_MAPVIEW = 'data_files/map_view.qml'
 
 logging.getLogger(__name__).warning('Using "STOLEN" google-api key, DO NOT RELEASE LIKE THIS')
 

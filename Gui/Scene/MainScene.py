@@ -85,7 +85,7 @@ class MainScene(TranslateCoordinates, QGraphicsScene):
     def c_load_project(self, project: dict):
         self.log.debug(f'MainScene: Loading new project: "{project["project_name"]}"')
         self._set_scenerect_at(project['latitude'], project['longitude'])
-        #self.parent().s_view_center_at_xy.emit(self.latlng_2_xy(QPointF(project['latitude'], project['longitude'])))
+        self.parent().s_view_center_at_xy.emit(self.latlng_2_xy(QPointF(project['latitude'], project['longitude'])))
         self.s_set_background_color.emit(Qt.white)
 
     @Slot(QSize, QSize)

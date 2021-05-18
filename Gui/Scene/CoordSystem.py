@@ -31,7 +31,7 @@ class TranslateCoordinates:
         pixels_per_meter = 6.6983242420439195  # 1 / 0.149291071
         return 6.6983242420439195
 
-    def latlng_2_xy(self, latlng: QPointF) -> QPointF:
+    def  latlng_2_xy(self, latlng: QPointF) -> QPointF:
         mx, my = self.mercator.LatLonToMeters(latlng.x(), latlng.y())
         px, py = self.mercator.MetersToPixels(mx, my)
         return QPointF(px, py)
@@ -46,10 +46,11 @@ class TranslateCoordinates:
         half_diameter = math.sqrt(math.pow(size_in_meters.width(), 2) + math.pow(size_in_meters.height(), 2)) / 2
         top_left_latlng = self.latlng_at_distance(latlng, half_diameter, DEGREES_NW)
         top_left_xy = self.latlng_2_xy(top_left_latlng)
+
+
         m_xy = self.xy_per_m
         rect = QRect(top_left_xy.toPoint(), QSize(size_in_meters.width()*m_xy, size_in_meters.height()*m_xy))
         return rect
-
 
     def latlng_at_distance(self, from_latlng: QPointF, distance_in_meters: float, heading_degrees: float) -> QPointF:
             """
