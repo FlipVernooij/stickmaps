@@ -65,6 +65,8 @@ class MapsToolBar(QToolBar):
         actions = MapToolbarActions(self, self.map_view)
         self.addAction(actions.toggle_satellite())
 
+        self.addAction(actions.zoom_in())
+        self.addAction(actions.zoom_out())
 
 class ContextMenuImports(QMenu):
     def __init__(self, parent):
@@ -82,6 +84,7 @@ class ContextMenuSurvey(QMenu):
         self.addAction(actions.edit_lines())
         self.addAction(actions.remove_empty_lines())
         self.addAction(actions.remove_survey())
+        self.addAction(actions.save_survey_to_dmp_file())
 
 
 class ContextMenuLine(QMenu):

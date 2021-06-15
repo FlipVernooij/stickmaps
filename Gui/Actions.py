@@ -9,13 +9,14 @@ from PySide6.QtWidgets import QFileDialog, QTreeView, QMenu, QMessageBox, QDialo
 
 from Config.Constants import MAIN_WINDOW_STATUSBAR_TIMEOUT, APPLICATION_NAME, APPLICATION_FILE_EXTENSION, \
     MAIN_WINDOW_TITLE, MNEMO_BAUDRATE, MNEMO_TIMEOUT
-from Config.Icons import ICON_TOGGLE_SATELLITE
+from Config.Icons import ICON_TOGGLE_SATELLITE, ICON_ZOOM_IN, ICON_ZOOM_OUT
 from Config.KeyboardShortcuts import KEY_IMPORT_MNEMO_CONNECT, KEY_IMPORT_MNEMO_DUMP_FILE, KEY_QUIT_APPLICATION, \
-    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW, KEY_IMPORT_MNEMO_DUMP, KEY_PREFERENCES, KEY_TOGGLE_SATELLITE
+    KEY_SAVE, KEY_SAVE_AS, KEY_OPEN, KEY_NEW, KEY_IMPORT_MNEMO_DUMP, KEY_PREFERENCES, KEY_TOGGLE_SATELLITE, KEY_ZOOM_IN, \
+    KEY_ZOOM_OUT
 from Gui.Dialogs import ErrorDialog, EditSurveyDialog, EditLinesDialog, EditLineDialog, EditStationsDialog, \
     EditStationDialog, PreferencesDialog, NewProjectDialog, OpenProjectDialog, DocumentationDialog
 from Gui.Dialogs import EditSurveysDialog
-from Importers.Mnemo import MnemoImporter
+from Importers.Mnemo import MnemoImporter, MnemoDumpWriter
 from Utils.Settings import Preferences
 from Utils.Storage import SaveFile
 from Workers.Mixins import ThreadWithProgressBar
@@ -296,6 +297,34 @@ class TreeActions:
         form = EditSurveyDialog(self.tree_view, self.get_selected_item())
         form.show()
 
+    def save_survey_to_dmp_file(self):
+        action = QAction('Export survey to dmp file', self.context_menu)
+        action.triggered.connect(lambda: self.save_survey_to_dmp_file_callback())
+        return action
+
+    def save_survey_to_dmp_file_callback(self):
+        settings = QSettings()
+        dialog = QFileDialog()
+
+        file_regex = f'(*.dmp)'
+        file_ident = f'Mnemo dmp file {file_regex}'
+
+        dialog.setWindowTitle('Save dmp file')
+        dialog.setFilter(dialog.filter())
+        dialog.setDefaultSuffix(APPLICATION_FILE_EXTENSION)
+        dialog.setAcceptMode(QFileDialog.AcceptSave)
+        dialog.setNameFilters([file_ident])
+        dialog.setDirectory(settings.value('SaveFile/last_path', str(pathlib.Path.home())))
+        dialog.setOption(QFileDialog.DontUseNativeDialog)
+        if dialog.exec_() == QDialog.Accepted:
+            file_name = dialog.selectedFiles()[0]
+            if file_name[-4:] != f'.dmp':
+                file_name = f'{file_name}.dmp'
+            survey_id = self.get_selected_item().survey_id()
+
+            writer = MnemoDumpWriter()
+            writer.save_survey_to_dmp(survey_id, file_name)
+
     def remove_survey(self):
         action = QAction('delete survey', self.context_menu)
         action.triggered.connect(lambda: self.remove_survey_callback())
@@ -426,3 +455,22 @@ class MapToolbarActions:
     def toggle_satellite_callback(self):
         logging.getLogger().warning('sending s_toggle_satellite signal')
         self.map_view.s_toggle_satellite.emit(None)
+
+    def zoom_in(self):
+        action = QAction(QIcon(ICON_ZOOM_IN), 'Zoom in', self.toolbar)
+        action.setShortcut(KEY_ZOOM_IN)
+        action.triggered.connect(lambda: self.zoom_in_callback())
+        return action
+
+    def zoom_in_callback(self):
+        self.map_view.s_change_zoom.emit(False, 1.0)
+
+
+    def zoom_out(self):
+        action = QAction(QIcon(ICON_ZOOM_OUT), 'Zoom out', self.toolbar)
+        action.setShortcut(KEY_ZOOM_OUT)
+        action.triggered.connect(lambda: self.zoom_out_callback())
+        return action
+
+    def zoom_out_callback(self):
+        self.map_view.s_change_zoom.emit(False, -1.0)

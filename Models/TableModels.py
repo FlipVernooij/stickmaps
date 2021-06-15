@@ -412,8 +412,12 @@ class ImportLine(QueryMixin, QSqlTableModel):
     def get(self, line_id) -> dict:
         return self.db_get(SQL_TABLE_IMPORT_LINES, 'line_id=?', [line_id])
 
-    def get_all(self, survey_id: int) -> list:
-        return self.db_fetch(f'SELECT line_id, line_name FROM {SQL_TABLE_IMPORT_LINES} WHERE survey_id=? ORDER BY line_id ASC', [survey_id])
+    def get_all(self, survey_id: int, all_columns: bool = False) -> list:
+        if all_columns:
+            select = '*'
+        else:
+            select = 'line_id, line_name'
+        return self.db_fetch(f'SELECT {select} FROM {SQL_TABLE_IMPORT_LINES} WHERE survey_id=? ORDER BY line_id ASC', [survey_id])
 
     def insert(self, survey_id: int, line_reference_id: int, direction: str, device_properties: dict) -> int:
         data = {

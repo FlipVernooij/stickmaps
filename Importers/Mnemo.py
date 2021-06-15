@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -11,6 +12,8 @@ from Config.Constants import MNEMO_DEVICE_NAME, MNEMO_DEVICE_DESCRIPTION, MNEMO_
 from Models.TableModels import ImportSurvey, ImportLine, ImportStation, SqlManager
 from Utils.Settings import Preferences
 from Workers.Mixins import WorkerMixin
+
+
 
 
 class MnemoImporter(WorkerMixin):
@@ -98,6 +101,18 @@ class MnemoImporter(WorkerMixin):
 
             ser.write(b'C')
             time.sleep(.1)
+            # @todo somehow the dat is not set correctly?
+            """
+            LocalDateTime
+            Thread.sleep(100L);
+            date = LocalDateTime.now();
+            startCode[0] = (byte)(date.getYear() % 1000);
+            startCode[1] = (byte) date.getMonthValue();
+            startCode[2] = (byte) date.getDayOfMonth();
+            startCode[3] = (byte) date.getHour();
+            startCode[4] = (byte) date.getMinute();
+            comPort.writeBytes(startCode, 5L);
+            """
             now = datetime.now()
             dt = [
                 now.strftime("%y").encode("ascii"),
@@ -158,9 +173,8 @@ class MnemoImporter(WorkerMixin):
         if not self.import_list:
             raise Exception('NO_DATA_FOUND')
         self.s_task_label.emit('Writing data to file.')
-        text_file = open(path, "w")
-        text_file.write(';'.join(str(x) for x in self.import_list))
-        text_file.close()
+        writer = MnemoDumpWriter(self.import_list)
+        writer.write_file(path)
 
     def parse_bytelist(self) -> int:
         if not self.import_list:
@@ -240,12 +254,8 @@ class MnemoDmpReader:
         self.logger = logging.getLogger(__name__)
 
     def read(self) -> list:
-        survey_id = -1
         line_id = -1
         station_id = -1
-        """
-        :return: survey_id
-        """
         survey_id = self.survey.insert(
                 device_name=Preferences.get("mnemo_device_name", MNEMO_DEVICE_NAME, str),
                 device_properties={
@@ -278,7 +288,7 @@ class MnemoDmpReader:
             length_in = 0
             while True:
                 if self.end_of_bytes(self.LINE_LENGTH_STATION):
-                    # Here we have LESS that a full station-line.
+                    # Here we have LESS than a full station-line.
                     #   1.) The line is the last entry of the dump, no end-line line exists
                     #   2.) The next line is incomplete and is smaller then 16 bytes.
                     if len(self._bytes) - self._jump(self.LINE_LENGTH_STATION+1, False) > 0:
@@ -287,7 +297,7 @@ class MnemoDmpReader:
                         f"ln 281: End import at station_id={station_id} line_id={line_id} survey_id={survey_id} (at index {self._index} of {len(self._bytes)}")
                     return survey_id
 
-                # Loop through every station for this stations
+                # Loop through every station for these stations
                 station_reference_id += 1
                 if self.end_of_line():
                     if station_reference_id == 1:
@@ -331,7 +341,7 @@ class MnemoDmpReader:
                     length_out=station_props['length'],
                     #  we need to reverse the azimuth as we are storing a station and not a line.
                     #  as the line starts at a point, the azimuth in of a line.. is the azimuth out of a station.
-                    #  the azimuth out of a line..is the azimuth in of a station.
+                    #  the azimuth out of a line..is the azimuth in to a station.
                     azimuth_in=azimuth_in,
                     azimuth_out=station_props['azimuth_in'],
                     #  @todo OneGo mode most probably breaks this.
@@ -357,7 +367,7 @@ class MnemoDmpReader:
             "skipped_bytes": 0,
             "status": False,
         }
-        # @ariane Skip unknown data until version number in case of previously damaged lines?
+        # @ariane skips unknown data until version number in case of previously damaged lines?
         while self.read_int8() != 2:
             properties['skipped_bytes'] += 1
             if self.end_of_bytes():
@@ -405,16 +415,21 @@ class MnemoDmpReader:
             'byte_start': self._jump(0, False)
         }
         try:
+            # @todo I am only accepting unsigned ints for depths,
+            #       yet I might not be surprised if we should actually allow them for every property
+            #       Despite what ariane is doing, as I do think that ariane might not even understand there is a setbit set to start with.
             props['status_byte'] = self.read_int8()
             props['azimuth_in'] = self.read_int16() / 10
             props['azimuth_out'] = self.read_int16() / 10
             props['length'] = self.read_int16() / 100
-            props['depth_in'] = self.read_int16() / 100
-            props['depth_out'] = self.read_int16() / 100
+            props['depth_in'] = self.read_int16(unsigned=True) / 100
+            props['depth_out'] = self.read_int16(unsigned=True) / 100
             props['pitch_in'] = self.read_int16() / 100
             props['pitch_out'] = self.read_int16() / 100
             props['direction'] = self.get_direction(self.read_int8())
             props['status'] = True
+
+
 
         except IndexError as error:
             props['error'] = 'Next byte could not be found',
@@ -447,15 +462,37 @@ class MnemoDmpReader:
     def read_int8(self, add_to_index: int = 1, update_index: bool=True) -> int:
         return self._setbit_negative_to_positive(self._bytes[self._jump(add_to_index, update_index)], True)
 
-    def read_int16(self, add_to_index: int = 1, update_index: bool=True) -> int:
-        b_1 = self._setbit_negative_to_positive(self._bytes[self._jump(add_to_index, False)])
-        b_2 = self._setbit_negative_to_positive(self._bytes[self._jump(add_to_index + 1, update_index)])
-        pad = ''
-        if len(b_2) < 2:
-            pad = '0'
-        hex_str = '0x{}{}{}'.format(b_1, pad, b_2)
-        response = int(hex_str, 16)
-        return response
+    def read_int16(self, add_to_index: int = 1, update_index: bool=True, unsigned=False) -> int:
+        # Ariane does not handle setbits correctly.
+        #
+        # When writing a dump-file, it is actively trying to ignore and remove setbits,
+        # making all values positive even when provided as negative by the mnemo.
+        #
+        # The problem is that when we reset the depth-sensor at depth, we might actually end up with negative numbers.
+        # The negative value is correctly shown on the Mnemo, but crashes ariane and mnemo-bridge.
+        # After reading the dumpfile according to ariane standards, the negatives are wrapping resulting in very high positive numbers.
+        #
+        # We need to fix that somehow, I want stickmaps to show the correct negative value.
+        #
+        if unsigned is False:
+            # ariane's way of dealing with set-bits.
+            # @todo can't this be done a bit nicer, juggling between hex and hex strings is sort of dirty...
+            b_1 = self._setbit_negative_to_positive(self._bytes[self._jump(add_to_index, False)])
+            b_2 = self._setbit_negative_to_positive(self._bytes[self._jump(add_to_index + 1, update_index)])
+            pad = ''
+            if len(b_2) < 2:
+                pad = '0'
+            hex_str = '0x{}{}{}'.format(b_1, pad, b_2)
+            response = int(hex_str, 16)
+            return response
+        else:
+            # actually allow for negative values, practically undoing MnemoDmpWriter._setbit_to_uint8()
+            byte_1 = self._bytes[self._jump(add_to_index, False)]
+            byte_2 = self._bytes[self._jump(add_to_index + 1, update_index)]
+            return (byte_1 << 8) | (byte_2 & 0xff)
+
+
+
 
     def read_char(self, add_to_index: int = 1, update_index: bool=True) -> chr:
         return chr(self.read_int8(add_to_index, update_index))
@@ -476,10 +513,11 @@ class MnemoDmpReader:
 
     def _setbit_negative_to_positive(self, decimal, as_int=False):
         """
-        JAVA's byte type is a setbit byte type, which translates to a u_int_8 (-127 / 127)
+        JAVA's byte type is a setbit byte type, which translates to a unsigned u_int_8 (-127 / 127)
         In order to use the full 256 byte values, we need to translate all negative values back to its positive counter part.
-        I don't know why this was'nt done at the moment of writing the dump-file itself.
+        I don't know why this wasn't done at the moment of writing the dump-file itself.
         """
+
         if decimal < 0:
             decimal = int(format((1 << 8) + decimal, '08b'), 2)
 
@@ -489,10 +527,147 @@ class MnemoDmpReader:
         return result
 
 
+class MnemoDumpWriter:
+    """
+    -518 ==          0xFDFA = 11111101 11111010
+
+    actual: 6523
+        signed 16b   0x197B = 00011001 01111011
+       usigned 16b   0x197B = 00011001 01111011
+    """
+    LINE_LENGTH_LINE = 10
+    LINE_LENGTH_STATION = 16
+
+    END_OF_LINE_LIST = (3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,)
+
+    DIRECTION_IN = 0
+    DIRECTION_OUT = 1
+    DIRECTIONS = (SURVEY_DIRECTION_IN, SURVEY_DIRECTION_OUT, "UNKNOWN",)
+
+    STATUS_INPROGRESS = 2
+    STATUS_END_LINE = 3
+
+    LAST_STATION_GENERATED = 'Last station is generated'
+
+    def __init__(self, import_list: list = None):
+        self.import_list = import_list
+
+    def save_survey_to_dmp(self, survey_id, file_name):
+        self._ariane_dmp_dump(survey_id)
+        self.write_file(file_name)
+
+
+    def _csv_dump(self, survey_id: int):
+        manager = SqlManager()
+        lines = manager.factor(ImportLine).get_all(survey_id, True)
+        station_obj = manager.factor(ImportStation)
+        rows = [
+            ';line_nr',
+            'line_name',
+            'direction',
+            'station_nr',
+            'length_in',
+            'azimuth_in',
+            'depth',
+            'azimuth_out',
+            'azimuth_out_avg'
+
+            '\n'
+        ]
+
+        l = -1
+        for line in lines:
+            l += 1
+            s = -1
+            stations = station_obj.get_all(line['line_id'])
+            for station in stations:
+                s+=1
+                rows.append(f'{l}')
+                rows.append(line['line_name'])
+                rows.append(line['direction'])
+                rows.append(s)
+                rows.append(station['length_in'])
+                rows.append(station['azimuth_in'])
+                rows.append(station['depth']),
+                rows.append(station['azimuth_out'])
+                rows.append(station['azimuth_out_avg'])
+                rows.append("\n")
+
+        self.import_list = rows
+
+    def _ariane_dmp_dump(self, survey_id: int):
+        manager = SqlManager()
+        lines = manager.factor(ImportLine).get_all(survey_id, True)
+        station_obj = manager.factor(ImportStation)
+        rows = []
+        # version and DateTime
+        # now = datetime.now()
+        now = datetime(2021, 3, 7, 13, 4)
+        l = -1
+
+
+        for line in lines:
+            rows.extend([
+                2,
+                # https: // stackoverflow.com / questions / 34009653 / convert - bytes - to - int
+                int(now.strftime("%y")),
+                int(now.strftime("%m")),
+                int(now.strftime("%d")),
+                int(now.strftime("%H")),
+                int(now.strftime("%M")),
+                int.from_bytes(b'B', 'big'),
+                int.from_bytes(b'A', 'big'),
+                int.from_bytes(b'S', 'big'),
+                self.DIRECTION_IN if line['direction'] == 'In' else self.DIRECTION_OUT
+            ])
+
+            l += 1
+            s = -1
+            stations = station_obj.get_all(line['line_id'])
+            for index, station in enumerate(stations):
+                orig_props = json.loads(station['device_properties'])
+                try:
+                    if orig_props['comment'] == self.LAST_STATION_GENERATED:
+                        # As we are storing stations instead of lines, we should ignore the last station of a line.
+                        rows.extend(self.END_OF_LINE_LIST)
+                        continue
+                except KeyError:
+                    pass
+
+
+                rows.append(self.STATUS_INPROGRESS)
+                rows.extend(self.to_uint16(station['azimuth_out'] * 10))  # status byte int8
+                rows.extend(self.to_uint16(stations[index+1]['azimuth_in'] * 10))  # status byte int8
+                rows.extend(self.to_uint16(station['length_out'] * 100))  # status byte int8
+                rows.extend(self.to_uint16(station['depth'] * 100))  # <- This should be a signed INT...
+                rows.extend(self.to_uint16(station['depth'] * 100))  # status byte int8
+                rows.extend(self.to_uint16(orig_props['pitch_in'] * 100))  # status byte int8
+                rows.extend(self.to_uint16(orig_props['pitch_out'] * 100))  # status byte int8
+                rows.append(self.DIRECTION_IN if line['direction'] == 'In' else self.DIRECTION_OUT)  # status byte int8
+
+        rows.extend(self.END_OF_LINE_LIST)
+        self.import_list = rows
+
+    def to_uint16(self, decimal):
+        # Skip fancy bit-shifting, using a blunt axe today.
+        c, f = divmod(int(decimal), 1 << 8)
+        if c > 127:
+            c -= 256
+        if f > 127:
+            f -= 256
+
+        return c, f
+
+    def write_file(self, path):
+        if not self.import_list:
+            raise Exception('NO_DATA_FOUND')
+        text_file = open(path, "w")
+        text_file.write(f"{';'.join(str(x) for x in self.import_list)};")
+        text_file.close()
 
 if __name__ == '__main__':
-    #importer = MnemoImporter(thread_action=MnemoImporter.ACTION_READ_DUMP, in_file='/home/flip/Code/stickmaps/data_files/tux.dmp')
-    importer = MnemoImporter(thread_action=MnemoImporter.ACTION_READ_DUMP, in_file='/home/flip/Code/stickmaps/data_files/stickmaps_dump.dmp')
+    #importer = MnemoImporter(thread_action=MnemoImporter.ACTION_READ_DUMP, in_file='/home/flip/Code/Stickmaps/data_files/tux.dmp')
+    importer = MnemoImporter(thread_action=MnemoImporter.ACTION_READ_DUMP, in_file='/home/flip/Code/Stickmaps/data_files/negative_depth.dmp')
     importer.run()
     #importer.read_dump_file('/home/flip/Code/stickmaps/data_files/findingmnemo_orig.dmp')
     # print(f"DEVICE is at: {importer.get_device_location()}")

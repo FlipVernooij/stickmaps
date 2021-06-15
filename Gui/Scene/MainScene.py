@@ -25,7 +25,8 @@ ATM: I am fetching the tiles around the centerpoint of the map (lat/lng from pro
 """
 
 
-class MainScene(TranslateCoordinates, QGraphicsScene):
+# class MainScene(TranslateCoordinates, QGraphicsScene):
+class MainScene(QGraphicsScene):
     """
     Coordinate system:
         In order to make this as simple as humanly possible, the Scene coordinates are according to the "Pixel coordinates at zoom level 20"
@@ -62,37 +63,37 @@ class MainScene(TranslateCoordinates, QGraphicsScene):
 
     """
 
-    # The size of the scene in KM.
-    SCENE_SIZE = QSize(500, 500)
+    # # The size of the scene in KM.
+    # SCENE_SIZE = QSize(500, 500)
 
     """
     Sets the background color of the scene.
     """
-    s_set_background_color = Signal(object)
+   # s_set_background_color = Signal(object)
 
     """
         Called when the scene is resized (enlarged) this is NOT emitted when the view resizes.
         old_size: QRect
         new_size: QRect
     """
-    s_scene_resize = Signal(QRect, QRect)
+    #s_scene_resize = Signal(QRect, QRect)
 
-    @Slot(object)
-    def c_set_background_color(self, color):
-        self.setBackgroundBrush(color)
-
-    @Slot(dict)
-    def c_load_project(self, project: dict):
-        self.log.debug(f'MainScene: Loading new project: "{project["project_name"]}"')
-        self._set_scenerect_at(project['latitude'], project['longitude'])
-        self.parent().s_view_center_at_xy.emit(self.latlng_2_xy(QPointF(project['latitude'], project['longitude'])))
-        self.s_set_background_color.emit(Qt.white)
-
-    @Slot(QSize, QSize)
-    def c_view_resize(self, old_size: QSize, new_size: QSize):
-        pass
-
-
+    # @Slot(object)
+    # def c_set_background_color(self, color):
+    #     self.setBackgroundBrush(color)
+    #
+    # @Slot(dict)
+    # def c_load_project(self, project: dict):
+    #     self.log.debug(f'MainScene: Loading new project: "{project["project_name"]}"')
+    #     self._set_scenerect_at(project['latitude'], project['longitude'])
+    #     self.parent().s_view_center_at_xy.emit(self.latlng_2_xy(QPointF(project['latitude'], project['longitude'])))
+    #     self.s_set_background_color.emit(Qt.white)
+    #
+    # @Slot(QSize, QSize)
+    # def c_view_resize(self, old_size: QSize, new_size: QSize):
+    #     pass
+    #
+    #
     def view_rect(self) -> QRect:
         return self.parent().mapToScene(self.parent().viewport().rect()).boundingRect()
 
@@ -103,9 +104,9 @@ class MainScene(TranslateCoordinates, QGraphicsScene):
 
 
         # Connect signals
-        parent.parent().s_load_project.connect(self.c_load_project)
-        self.s_set_background_color.connect(self.c_set_background_color)
-        parent.s_view_resize.connect(self.c_view_resize)
+        # parent.parent().s_load_project.connect(self.c_load_project)
+        # self.s_set_background_color.connect(self.c_set_background_color)
+        # parent.s_view_resize.connect(self.c_view_resize)
 
 
         #self._init_database_objects()
@@ -122,14 +123,14 @@ class MainScene(TranslateCoordinates, QGraphicsScene):
         #
         # self.parent().s_move_viewport.connect(self.c_move_viewport)
 
-    # def _init_database_objects(self):
-    #     self._sql_manager = SqlManager()
-    #     self.db_project = self._sql_manager.factor(ProjectSettings)
-    #     self.db_import_survey = self._sql_manager.factor(ImportSurvey)
-    #     self.db_import_line = self._sql_manager.factor(ImportLine)
-    #     self.db_import_station = self._sql_manager.factor(ImportStation)
+    # # def _init_database_objects(self):
+    # #     self._sql_manager = SqlManager()
+    # #     self.db_project = self._sql_manager.factor(ProjectSettings)
+    # #     self.db_import_survey = self._sql_manager.factor(ImportSurvey)
+    # #     self.db_import_line = self._sql_manager.factor(ImportLine)
+    # #     self.db_import_station = self._sql_manager.factor(ImportStation)
+    # #
     #
-
     @property
     def main_application(self):
         return self.parent().parent()
@@ -161,19 +162,19 @@ class MainScene(TranslateCoordinates, QGraphicsScene):
     def remove_overlay(self, name: str):
         del self._overlays[name]
 
-    def _set_scenerect_at(self, latitude: float, longitude: float) -> QRect:
-        """
-            Called on project load
-        """
-        center_latlng = QPointF(latitude, longitude)
-        rect = self.xy_rect_with_center_at(center_latlng, self.SCENE_SIZE*1000)
-
-        self.setSceneRect(rect)
-        self.log.debug(f'SceneRect set to: {rect}')
-
-        return rect
-
-        
+    # def _set_scenerect_at(self, latitude: float, longitude: float) -> QRect:
+    #     """
+    #         Called on project load
+    #     """
+    #     center_latlng = QPointF(latitude, longitude)
+    #     rect = self.xy_rect_with_center_at(center_latlng, self.SCENE_SIZE*1000)
+    #
+    #     self.setSceneRect(rect)
+    #     self.log.debug(f'SceneRect set to: {rect}')
+    #
+    #     return rect
+    #
+    #
 
     #
     # # I should propably move these somewhere... yet I don't know where yet

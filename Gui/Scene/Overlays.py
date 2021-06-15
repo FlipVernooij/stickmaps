@@ -17,17 +17,28 @@ class GridOverlay(QGraphicsItem):
     def parent(self) -> QGraphicsScene:
         return self._parent
 
+    def main_window(self):
+        return self.parent().main_application
+
+    def map_view(self):
+        return self.parent().parent()
+
     def boundingRect(self):
         return self.scene_rect
+    #
+    # @Slot(dict)
+    # def c_load_project(self, project: dict):
+    #     self.update()
+    #
+    # @Slot(QRect, QRect)
+    # def c_scene_resize(self, old_size: QRect, new_size: QRect):
+    #     pass
+    #     # self.update()
 
-    @Slot(dict)
-    def c_load_project(self, project: dict):
+    @Slot(float, float)
+    def c_zoom_changed(self, new_zoom: float, old_zoom: float):
         self.update()
 
-    @Slot(QRect, QRect)
-    def c_scene_resize(self, old_size: QRect, new_size: QRect):
-        pass
-        # self.update()
 
     def __init__(self, parent):
         super().__init__()
@@ -40,13 +51,15 @@ class GridOverlay(QGraphicsItem):
 
         self.scene_rect = self.parent().sceneRect()
 
-        self.parent().main_application.s_load_project.connect(self.c_load_project)
-        self.parent().s_scene_resize.connect(self.c_scene_resize)
+        # self.main_window().s_load_project.connect(self.c_load_project)
+        self.map_view().s_zoom_changed.connect(self.c_zoom_changed)
+
 
         # self.parent().parent().s_zoom_viewp.connect(self.c_zoom_viewport)
 
         # this will be multiplied by 10 when the grid gets to big
-        self.tile_size = 50  # as meters in block 20.4
+        # self.tile_size =  # 50 as meters in block 20.4
+
 
     def show(self):
         self.log.debug(f'Showing GridOverlay')
@@ -59,6 +72,9 @@ class GridOverlay(QGraphicsItem):
         self.is_visible = False
         self.setVisible(False)  # call on parent
 
+    #def update(self):
+
+
     def paint(self, painter, option, widget, PySide6_QtWidgets_QWidget=None, NoneType=None, *args, **kwargs):
         if self.is_enabled is not True or self.is_visible is not True:
             self.log.debug("Grid overlay not visible")
@@ -66,8 +82,10 @@ class GridOverlay(QGraphicsItem):
         self.log.debug('Grid overlay is rendered')
 
         self.scene_rect = self.parent().sceneRect()
-        y_append = QPointF(0, self.tile_size)
-        x_append = QPointF(self.tile_size, 0)
+        tile_size = self.get_grid_size(self.map_view().get_current_zoom())
+
+        y_append = QPointF(0, tile_size)
+        x_append = QPointF(tile_size, 0)
 
         view_rect = self.parent().view_rect()
 
@@ -95,7 +113,8 @@ class GridOverlay(QGraphicsItem):
             if break_loop > 1:
                 break
 
-
+    def get_grid_size(self, zoom_level: float) -> int:
+        return int(zoom_level)
 
 
 class SatelliteOverlay(QGraphicsItemGroup, TileGridMixin, GeoMixin):

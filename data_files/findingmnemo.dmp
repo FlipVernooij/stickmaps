@@ -1,4 +1,5 @@
 # 1.) first 9 entries are probably mnemo settings or something... for now Ignore them
+        Date...
 # 2.) make everythin 16bit integers (just ignore the "-" sign, buggy programming going on here...)
 #
 #    1.) section number.

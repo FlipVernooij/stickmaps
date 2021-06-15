@@ -1,17 +1,15 @@
 import logging
 import os
 
-from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal, QPointF, Slot, QRect, QUrl
-from PySide6.QtGui import QIcon, Qt, QCloseEvent, QDrag, QPixmap, QColor, QWheelEvent, QResizeEvent, QMouseEvent, \
-    QCursor
+from PySide6.QtCore import QSettings, QSize, QPoint, QMimeData, Signal, QPointF, Slot
+from PySide6.QtGui import QIcon, Qt, QCloseEvent, QDrag, QPixmap, QColor, QResizeEvent, QMouseEvent
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtQuick import QQuickView
-from PySide6.QtQuickWidgets import QQuickWidget
+
 from PySide6.QtWidgets import QMainWindow, QWidget, QTreeView, QDockWidget, QMessageBox, \
     QAbstractItemView, QVBoxLayout, QTextBrowser, QPushButton, QComboBox, QHBoxLayout, QGraphicsView, QSplashScreen
 
 from Config.Constants import MAIN_WINDOW_TITLE, MAIN_WINDOW_STATUSBAR_TIMEOUT, TREE_MIN_WIDTH, TREE_START_WIDTH, \
-    MAIN_WINDOW_ICON, DEBUG, APPLICATION_SPLASH_IMAGE, QML_MAPVIEW
+    MAIN_WINDOW_ICON, DEBUG, APPLICATION_SPLASH_IMAGE
 from Gui.Actions import GlobalActions
 from Gui.Dialogs import StartupWidget
 from Gui.Scene.MainScene import MainScene
@@ -236,134 +234,185 @@ class SurveyOverview(QTreeView):
         event.accept()
 
 
-class MapView(QQuickWidget):
-    def __init__(self, parent):
-        super().__init__()
-        url = QUrl(QML_MAPVIEW)
-        self.setSource(url)
-        # .setResizeMode(QQuickView.SizeRootObjectToView)
-        self.show()
+class MapView(QGraphicsView):
+    ZOOM_LEVEL_DEFAULT = 10
+    ZOOM_LEVEL_MIN = 0
+    ZOOM_LEVEL_MAX = 22
 
-class OLD_MapView(QGraphicsView):
-    # ZOOM_DEFAULT_LEVEL = 20
-    # ZOOM_MAX_LEVEL = 20.75
-    # ZOOM_MIN_LEVEL = 0
-    #
-    # # Called on a screen resize, this is ALSO TRIGGERED when opening the application and loading the view the first time.
-    # s_resize_viewport = Signal(QSize)
-    # # min zoom (world) = 0, max zoom (building) = 20.75
-    # s_zoom_viewport = Signal(float, float, QPointF)
-    # s_move_viewport = Signal(QPointF)
-    # s_rotate_viewport = Signal(int)
-    #
-    #
-    # # when the project changed or a new project is loaded, this signal is triggered
-    # s_project_changed = Signal(dict)
-    #
-    # # self.s_toggle_satellite.emit(None) to toggle the satellite overlay
-    # # self.s_toggle_satellite.emit(True) to show
-    # # self.s_toggle_satellite.emit(False) to hide
-    # s_toggle_satellite = Signal(object)
-    #
-
-    # View resize (old_size, new_size)
-
-    # Center the viewport a given xy coordinate.
-    s_view_center_at_xy = Signal(QPointF)
-
-    s_view_resize = Signal(QSize, QSize)
-    # View move (old_pos, new_pos)
-    s_view_move = Signal(QPointF, QPointF)
-
-    @Slot(dict)
-    def c_load_project(self, project):
-        self.log.debug(f'MapView: Loading new project "{project["project_name"]}"')
-
-    @Slot(QPointF, QPointF)
-    def c_view_move(self, old_pos: QPointF, new_pos: QPointF):
-        # it is here that I need to check whether the scene is big enough to support my move in a specific direction.
-        diff = new_pos - old_pos
-
-        scene_rect = self.map_scene.sceneRect()
-        view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
-
-        if diff.x() > 0:
-            # moving scene to the (viewer) right
-            # I have to add space BEFORE 0
-            pass
-        elif diff.x() < 0:
-            # moving scene to the (view) left
-            pass
-
-        foo =1
-
-        self.setTransformationAnchor(QGraphicsView.NoAnchor)
-        self.translate(new_pos.x() - old_pos.x(), new_pos.y() - old_pos.y())
-
-    @Slot(QPointF)
-    def c_view_center_at_xy(self, xy: QPointF):
-        self.log.debug(f'CENTER TO {xy}, {int(xy.x())}, {int(xy.y())}')
-        self.centerOn(int(xy.x()), int(xy.y()))
-
-    # events
-    def resizeEvent(self, event: QResizeEvent):
-        self.s_view_resize.emit(event.oldSize(), event.size())
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        self.mouse_move_from_cursor_position = QPoint(event.x(), event.y())
-        self.setCursor(Qt.OpenHandCursor)
-        event.accept()
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        old_pos = self.mouse_move_from_cursor_position
-        self.mouse_move_from_cursor_position = QPoint(event.x(), event.y())
-        self.s_view_move.emit(old_pos, self.mouse_move_from_cursor_position)
-        event.accept()
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        self.setCursor(Qt.ArrowCursor)
-        self.mouse_move_from_cursor_position = None
-        event.accept()
+    """
+        Change the zoom
+        @param bool
+                if True, the values is taken as the absolute value and overwrite the self.zoom_level value
+                if False it will be taken as a relative value and will be added to the self.zoom_level value.
+        @param float
+                when absolute value: the value of the new zoom_level
+                when relative value: zoom in is a positive value, zoom out should be a negative value.
+    """
+    s_change_zoom = Signal(bool, float)
+    """
+        will be emitted when the zoom level changed.
+        @param float new_zoom
+        @param float old_zoom
+    """
+    s_zoom_changed = Signal(float, float)
 
     def __init__(self, parent):
-        """
-        To enable OpenGL rendering, you simply set a new QOpenGLWidget as the viewport of QGraphicsView by calling QGraphicsView::setViewport().
-        If you want OpenGL with antialiasing, you need to set a QSurfaceFormat with the needed sample count (see QSurfaceFormat::setSamples()).
-        https://doc.qt.io/qt-6/graphicsview.html
-
-        QGraphicsView view(&scene);
-        QOpenGLWidget *gl = new QOpenGLWidget();
-        QSurfaceFormat format;
-        format.setSamples(4);
-        gl->setFormat(format);
-        view.setViewport(gl);
-
-        :param parent:
-        """
         super().__init__(parent)
+        self.zoom_level = self.ZOOM_LEVEL_DEFAULT
+
         open_gl = QOpenGLWidget()
         self.setViewport(open_gl)
         self.log = logging.getLogger(__name__)
 
-        self.parent().s_load_project.connect(self.c_load_project)
-        self.s_view_move.connect(self.c_view_move)
-        self.s_view_center_at_xy.connect(self.c_view_center_at_xy)
-        #self._current_zoom_level = self.ZOOM_DEFAULT_LEVEL
+
+
 
         self.map_scene = MainScene(self)
         self.setScene(self.map_scene)
+        self.s_change_zoom.connect(self.c_change_zoom)
+        self.s_zoom_changed.connect(self.c_zoom_changed)
 
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        # dont set globaly...
-        #self.setTransformationAnchor(self.AnchorUnderMouse)
+    def get_current_zoom(self) -> float:
+        return self.zoom_level
 
-        self.show()
+    @Slot(bool, float)
+    def c_change_zoom(self, is_absolute_value: bool, value: float):
+        old_zoom = self.zoom_level
+        if is_absolute_value is False:
+            new_zoom = old_zoom + value
+        if new_zoom < self.ZOOM_LEVEL_MIN:
+            self.log.info("Zoom level smaller then min_zoom, ignoring")
+            return
+        if new_zoom > self.ZOOM_LEVEL_MAX:
+            self.log.info("Zoom level bigger then max_zoom, ignoring")
+            return
 
-        # move event (set on first mouseMove, reset on mouseRelease)
-        self.mouse_move_from_cursor_position = None
+        self.zoom_level = new_zoom
+        self.s_zoom_changed.emit(self.zoom_level, old_zoom)
 
-       # self.s_move_viewport.connect(self.c_move_viewport)
+    @Slot(float)
+    def c_zoom_changed(self, new_zoom: float, old_zoom: float):
+        self.log.info(f'Zoom level changed from {old_zoom} too: {new_zoom}')
+
+    # # ZOOM_DEFAULT_LEVEL = 20
+    # # ZOOM_MAX_LEVEL = 20.75
+    # # ZOOM_MIN_LEVEL = 0
+    # #
+    # # # Called on a screen resize, this is ALSO TRIGGERED when opening the application and loading the view the first time.
+    # # s_resize_viewport = Signal(QSize)
+    # # # min zoom (world) = 0, max zoom (building) = 20.75
+    # # s_zoom_viewport = Signal(float, float, QPointF)
+    # # s_move_viewport = Signal(QPointF)
+    # # s_rotate_viewport = Signal(int)
+    # #
+    # #
+    # # # when the project changed or a new project is loaded, this signal is triggered
+    # # s_project_changed = Signal(dict)
+    # #
+    # # # self.s_toggle_satellite.emit(None) to toggle the satellite overlay
+    # # # self.s_toggle_satellite.emit(True) to show
+    # # # self.s_toggle_satellite.emit(False) to hide
+    # # s_toggle_satellite = Signal(object)
+    # #
+    #
+    # # View resize (old_size, new_size)
+    #
+    # # Center the viewport a given xy coordinate.
+    # s_view_center_at_xy = Signal(QPointF)
+    #
+    # s_view_resize = Signal(QSize, QSize)
+    # # View move (old_pos, new_pos)
+    # s_view_move = Signal(QPointF, QPointF)
+    #
+    # @Slot(dict)
+    # def c_load_project(self, project):
+    #     self.log.debug(f'MapView: Loading new project "{project["project_name"]}"')
+    #
+    # @Slot(QPointF, QPointF)
+    # def c_view_move(self, old_pos: QPointF, new_pos: QPointF):
+    #     # it is here that I need to check whether the scene is big enough to support my move in a specific direction.
+    #     diff = new_pos - old_pos
+    #
+    #     scene_rect = self.map_scene.sceneRect()
+    #     view_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+    #
+    #     if diff.x() > 0:
+    #         # moving scene to the (viewer) right
+    #         # I have to add space BEFORE 0
+    #         pass
+    #     elif diff.x() < 0:
+    #         # moving scene to the (view) left
+    #         pass
+    #
+    #     foo =1
+    #
+    #     self.setTransformationAnchor(QGraphicsView.NoAnchor)
+    #     self.translate(new_pos.x() - old_pos.x(), new_pos.y() - old_pos.y())
+    #
+    # @Slot(QPointF)
+    # def c_view_center_at_xy(self, xy: QPointF):
+    #     self.log.debug(f'CENTER TO {xy}, {int(xy.x())}, {int(xy.y())}')
+    #     self.centerOn(int(xy.x()), int(xy.y()))
+    #
+    # # events
+    # def resizeEvent(self, event: QResizeEvent):
+    #     self.s_view_resize.emit(event.oldSize(), event.size())
+    #
+    # def mousePressEvent(self, event: QMouseEvent) -> None:
+    #     self.mouse_move_from_cursor_position = QPoint(event.x(), event.y())
+    #     self.setCursor(Qt.OpenHandCursor)
+    #     event.accept()
+    #
+    # def mouseMoveEvent(self, event: QMouseEvent) -> None:
+    #     old_pos = self.mouse_move_from_cursor_position
+    #     self.mouse_move_from_cursor_position = QPoint(event.x(), event.y())
+    #     self.s_view_move.emit(old_pos, self.mouse_move_from_cursor_position)
+    #     event.accept()
+    #
+    # def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+    #     self.setCursor(Qt.ArrowCursor)
+    #     self.mouse_move_from_cursor_position = None
+    #     event.accept()
+    #
+    # def __init__(self, parent):
+    #     """
+    #     To enable OpenGL rendering, you simply set a new QOpenGLWidget as the viewport of QGraphicsView by calling QGraphicsView::setViewport().
+    #     If you want OpenGL with antialiasing, you need to set a QSurfaceFormat with the needed sample count (see QSurfaceFormat::setSamples()).
+    #     https://doc.qt.io/qt-6/graphicsview.html
+    #
+    #     QGraphicsView view(&scene);
+    #     QOpenGLWidget *gl = new QOpenGLWidget();
+    #     QSurfaceFormat format;
+    #     format.setSamples(4);
+    #     gl->setFormat(format);
+    #     view.setViewport(gl);
+    #
+    #     :param parent:
+    #     """
+    #     super().__init__(parent)
+    #     open_gl = QOpenGLWidget()
+    #     self.setViewport(open_gl)
+    #     self.log = logging.getLogger(__name__)
+    #
+    #     self.parent().s_load_project.connect(self.c_load_project)
+    #     self.s_view_move.connect(self.c_view_move)
+    #     self.s_view_center_at_xy.connect(self.c_view_center_at_xy)
+    #     #self._current_zoom_level = self.ZOOM_DEFAULT_LEVEL
+    #
+    #     self.map_scene = MainScene(self)
+    #     self.setScene(self.map_scene)
+    #
+    #     self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+    #     self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+    #     # dont set globaly...
+    #     #self.setTransformationAnchor(self.AnchorUnderMouse)
+    #
+    #     self.show()
+    #
+    #     # move event (set on first mouseMove, reset on mouseRelease)
+    #     self.mouse_move_from_cursor_position = None
+    #
+    #    # self.s_move_viewport.connect(self.c_move_viewport)
 
     # def get_zoom(self) -> float:
     #     return self._current_zoom_level

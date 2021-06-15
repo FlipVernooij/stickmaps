@@ -57,7 +57,7 @@ if __name__ == '__main__':
     app = MainApplicationWindow()
 
     splash.finish(app)
-    sys.exit(parent_app.exec_())
+    sys.exit(parent_app.exec())
 
 
 
